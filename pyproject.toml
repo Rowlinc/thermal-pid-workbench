@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thermal-pid-workbench"
+version = "0.3.0"
+description = "Configurable thermal PID identification, Z-N/SIMC comparison and guarded LLM tuning"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+keywords = ["PID", "SIMC", "system-identification", "thermal-control", "LLM"]
+dependencies = []
+
+[project.optional-dependencies]
+llm = ["requests>=2.31", "openai>=1.30", "anthropic>=0.34"]
+serial = ["pyserial>=3.5"]
+legacy = ["requests>=2.31", "pyserial>=3.5", "textual>=8.1.1,<9"]
+dev = ["pytest>=8,<10", "pytest-subtests>=0.14", "build>=1.2"]
+
+[project.scripts]
+thermal-pid = "pid_project:main"
+
+[tool.setuptools]
+py-modules = ["pid_project", "pid_safety", "system_id", "offline_compare", "tuning_pipeline", "simulator", "tuner", "launcher", "doctor", "benchmark"]
+
+[tool.setuptools.packages.find]
+include = ["thermal_pid*", "core*", "sim*", "llm*", "hw*", "reference*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+reference = ["SOURCE.json"]
+core = ["**/*.tcss"]
+sim = ["**/*.tcss"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

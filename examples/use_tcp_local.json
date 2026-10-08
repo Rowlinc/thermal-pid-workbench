@@ -1,0 +1,14 @@
+{
+  "name": "tcp_loopback_integration",
+  "mode": "use",
+  "device": {
+    "adapter": "tcp",
+    "host": "127.0.0.1",
+    "write_enabled": true,
+    "monitor_duration_s": 3,
+    "max_planning_output_change": 20
+  },
+  "output": {
+    "directory": "../results/use_tcp_local"
+  }
+}

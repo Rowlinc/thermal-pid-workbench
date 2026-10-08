@@ -1,0 +1,13 @@
+{
+  "name": "llm_30_to_100",
+  "llm": {
+    "enabled": true,
+    "credentials_file": "../config.json"
+  },
+  "tuning": {
+    "rounds": 2
+  },
+  "output": {
+    "directory": "../results/llm_project"
+  }
+}

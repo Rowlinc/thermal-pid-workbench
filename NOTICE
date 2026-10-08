@@ -1,0 +1,14 @@
+Thermal PID Workbench
+
+This project is derived from LLM-PID-Tuner by KINGSTON-115 and its contributors:
+https://github.com/KINGSTON-115/llm-pid-tuner
+
+The upstream Apache License, Version 2.0 is retained in LICENSE.
+Upstream source, documentation and attribution remain in this distribution.
+reference/original_system_id.py is an unchanged upstream identification snapshot;
+its source archive and SHA-256 are recorded in reference/SOURCE.json.
+
+Local modifications add corrected thermal FOPDT identification, SIMC PI tuning,
+offline comparisons, a configurable project workflow, explicit parameter units,
+gateway adapters, and related tests and documentation. See CHANGELOG.md.
+The new workflow and results do not imply endorsement by upstream authors.

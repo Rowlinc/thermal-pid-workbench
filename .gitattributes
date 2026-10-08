@@ -1,0 +1,4 @@
+* text=auto
+# Preserve the exact upstream snapshot bytes recorded in reference/SOURCE.json.
+reference/original_system_id.py -text
+*.ttf binary

@@ -1,0 +1,13 @@
+{
+  "name": "synthetic_history",
+  "model": {
+    "source": "csv"
+  },
+  "history": {
+    "file": "step_history.csv",
+    "time_unit": "s"
+  },
+  "output": {
+    "directory": "../results/history"
+  }
+}

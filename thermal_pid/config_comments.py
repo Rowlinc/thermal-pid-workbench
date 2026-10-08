@@ -1,0 +1,196 @@
+"""Chinese field help and dependency-free commented JSON support."""
+import json
+
+
+COMMENTS = {
+    'schema_version': '配置格式版本。保持 1，通常不需要修改。',
+    'name': '本次实验的名称，用来区分不同任务，可改成自己方便辨认的名字。',
+    'mode': '运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。',
+    'model': '对象模型：描述“改变加热功率或阀位后，温度如何响应”，不是本次任务的目标。',
+    'model.type': '模型类型：fopdt=一阶惯性加纯延迟；heating=两节点加热模型；custom=自己的模型。',
+    'model.source': '对象信息来源：parameters=直接填 K/τ/θ（仅 fopdt）；csv=从历史阶跃 CSV 辨识（仅 fopdt）；probe=在离线 heating/fopdt/custom 模型上做阶跃辨识，不操作现场。',
+    'model.K': '过程增益，单位 °C/输出单位。例如输出用 %，K=1 表示输出增加 1 个百分点，稳态温度约增加 1°C；降温对象可为负，不能为 0。probe 时也须填对方向。',
+    'model.tau_s': '时间常数 τ，单位秒，必须大于 0：响应经过延迟后，再过 τ 秒，大约完成最终温度变化的 63.2%。参数来源为 parameters 时用于整定；CSV 时由数据覆盖。',
+    'model.theta_s': '纯延迟 θ，单位秒，不能为负：改变输出后，等待多久才开始影响温度。Z-N 需要它大于 0；SIMC 可以为 0。',
+    'model.operating_temperature_c': '模型工作点温度，单位 °C，与 operating_output 对应的稳定温度；不同于任务初始温度。默认工作点为输出 0 时 20°C。',
+    'model.operating_output': '模型工作点输出，单位同 actuator.unit；FOPDT 稳态温度=工作点温度+K×(输出−工作点输出)。必须在输出范围内。',
+    'model.heater_gain_c_per_output': '仅 heating 使用：加热器每增加一个输出单位，对应的稳态加热器温升，单位 °C/输出单位，必须大于 0。',
+    'model.heater_tau_s': '仅 heating 使用：加热器自身响应的时间常数，单位秒，必须大于 0。',
+    'model.heat_transfer_per_s': '仅 heating 使用：加热器与被控对象之间的传热系数，单位 1/秒，必须大于 0；越大传热越快。',
+    'model.cooling_per_s': '仅 heating 使用：被控对象向环境散热的系数，单位 1/秒，不能为负；越大散热越快。',
+    'model.custom_factory': '仅 custom 使用：模型工厂的“模块:函数”名称，例如 examples.custom_model:create_model；普通内置模型留空。',
+    'history': '历史数据设置。只在 model.source=csv 时读取；CSV 需要时间、温度、实际输出，包含单次阶跃前基线和阶跃后的基本稳定末段。',
+    'history.file': '历史 CSV 路径，相对于本配置文件所在目录，例如 data/step.csv；不用历史数据时留空。',
+    'history.time_unit': 'CSV 时间列的单位：s=秒；ms=毫秒。必须与数据一致，避免把对象速度辨识错 1000 倍。',
+    'history.columns': 'CSV 列名映射。左边是程序固定名称，只改右边，使它与自己 CSV 的表头一致。',
+    'history.columns.time': 'CSV 中记录时间的列名，例如 timestamp 或 time_s。',
+    'history.columns.temperature': 'CSV 中记录实际温度（°C）的列名，例如 input 或 temperature_c。',
+    'history.columns.output': 'CSV 中记录实际加热功率/阀位的列名，例如 pwm 或 valve_percent；单位须与 actuator 一致。',
+    'history.use_recorded_operating_point': 'true=用 CSV 阶跃前的温度和输出作为模型工作点；false=使用上面手动填写的工作点。',
+    'identification': '辨识设置：控制离线阶跃实验及拟合质量。这里的 probe 不会向真实装置发阶跃命令。',
+    'identification.probe_duration_s': '离线阶跃记录总时长，单位秒，包含短基线；要足够长，使对象响应接近稳定。已知模型做原辨识对照时也使用它。',
+    'identification.probe_output_change': '离线阶跃的输出变化幅度，单位同 actuator.unit；输出用 % 时 20 表示改变 20 个百分点。须能落在执行器范围内。',
+    'identification.max_relative_rmse': '允许的 FOPDT 拟合相对误差上限：RMSE/阶跃温度变化幅度。0.05=5%；超限拒绝继续，需检查数据或模型适用性。',
+    'task': '本次任务：告诉程序“从什么状态开始，要达到什么目标”。',
+    'task.initial_temperature_c': '任务开始时被控对象温度，单位 °C。use 模式读取设备实际温度覆盖此值。',
+    'task.target_temperature_c': '希望达到的目标温度，单位 °C。例如从 30°C 升到 100°C，这里填 100；修改目标后也要检查评价和停止温度范围。',
+    'task.ambient_temperature_c': '环境温度，单位 °C，仅 heating 的散热/加热模型使用；FOPDT 使用自己的工作点，不额外叠加此值。',
+    'task.initial_heater_temperature_c': '加热器自身的初始温度，单位 °C，仅 heating 使用；与被控对象初温可以不同。',
+    'task.initial_output': '任务开始时的加热功率/阀位，单位同 actuator；也是 FOPDT 延迟前输入历史的假定值。use 模式从设备读回。',
+    'actuator': '执行器：实际输出的单位、允许范围和动作速度，例如加热功率百分比或阀门开度。',
+    'actuator.unit': '输出单位名称，例如 %、kW、valve_steps；只写单位不会自动换算，K、初始输出、CSV 和设备必须使用相同量纲。',
+    'actuator.min': '执行器允许的最小输出，单位同 unit。例如百分比输出通常为 0；必须小于 max。',
+    'actuator.max': '执行器允许的最大输出，单位同 unit。例如百分比输出通常为 100；不是旧项目固定的 255 PWM。',
+    'actuator.max_rate_per_s': '每秒允许的最大输出变化量。例如输出为 % 时，10 表示每秒最多变 10 个百分点；null=不限制速率。',
+    'controller': '控制器设置：PID 参数表示、计算周期、微分滤波以及程序级参数护栏。',
+    'controller.form': '导出/设备的 PID 形式：parallel=Kp/Ki/Kd 并联式；ideal=Kp/Ti/Td 理想式。内部始终使用并联式，不支持串联式。',
+    'controller.parameter_time_unit': '导出/设备参数的时间单位：s=秒；min=分钟，程序自动换算。initial_pid 和 limits 始终按秒制填写。',
+    'controller.sample_time_s': '控制计算周期，单位秒。例如 1=每秒算一次 PID；应与真实控制器一致，仿真时长须为它的整数倍。',
+    'controller.derivative_on': '微分作用位置：measurement=对实际温度变化取微分，减少设定值突变冲击；error=对目标减温度的误差取微分。',
+    'controller.derivative_filter_s': '微分一阶滤波时间，单位秒；越大滤波越强但更迟缓，0=不滤波。D=0 时该设置不影响微分输出。',
+    'controller.initialization': '任务开始/换参数时的内部状态：zero=积分和微分状态复位；tracking=预置积分以匹配当前输出，方便平滑接管。设备须支持相同语义。',
+    'controller.initial_pid': '起始 PID，也是限制参数增长的参照，不是最终推荐结果。全部为秒制并联增益的非负幅值；方向由 K 符号决定。use 模式从设备读取。',
+    'controller.initial_pid.p': '起始比例增益 Kp，单位 输出单位/°C；误差越大，比例输出越大。',
+    'controller.initial_pid.i': '起始积分增益 Ki，单位 输出单位/(°C·秒)；累计误差以消除稳态温差，0 表示关闭积分。',
+    'controller.initial_pid.d': '起始微分增益 Kd，单位 输出单位·秒/°C；对温度变化提供阻尼，0 表示关闭微分。',
+    'controller.limits': '对 Z-N、SIMC 和 LLM 生效的确定性参数护栏。它只限制程序参数，不代替现场过程保护。',
+    'controller.global_max_increase_ratio': '统一增长倍数限制：0=不增加全局限制，仍执行每项自己的限制；大于 1 时，与每项倍数取较小值。0 到 1 之间也不启用此额外限制。',
+    'algorithms': '参与比较的传统整定算法及 SIMC 响应速度设置。',
+    'algorithms.include': '候选算法列表：ZN_PID=Z-N PID；ZN_PI=Z-N PI；SIMC_PI=SIMC PI。可删除候选，但至少保留一项，不能重复。',
+    'algorithms.simc_lambda_s': 'SIMC 闭环时间常数 λ，单位秒：null=自动用 max(θ,τ/3)。更大通常更缓和，更小通常更激进；必须为正，需看仿真结果。',
+    'evaluation': '评价要求：定义什么结果算合格。所有启用门槛必须同时满足，再按 IAE 和输出变化择优。',
+    'evaluation.max_overshoot_pct': '最大允许超调百分比，按目标与初始温度的温差计算。30→100°C 时 5%=允许超过目标 3.5°C；最高温度门槛还会单独检查。',
+    'evaluation.max_temperature_c': '全过程允许的最高温度，单位 °C。例如 102=任何时刻不能超过 102°C；null=关闭此评价门槛。',
+    'evaluation.min_temperature_c': '全过程允许的最低温度，单位 °C，降温任务尤其需要核对；null=关闭此评价门槛。',
+    'evaluation.max_tail_error_c': '仿真末段平均绝对温差上限，单位 °C。例如 0.3=末段平均需距目标不超过 0.3°C。',
+    'evaluation.settling_band_c': '判断稳定的温差带，单位 °C。例如目标 100、此项 1，则稳定区间为 99–101°C。',
+    'evaluation.max_settling_time_s': '允许的最晚调节时间，单位秒：进入温差带后须持续保持到结束；null=不限制时间上限，但仍要求稳定。',
+    'evaluation.min_settled_observation_s': '进入温差带后至少还要观察多久，单位秒，避免最后一刻碰到目标就被判稳定。',
+    'evaluation.tail_fraction': '末段评价使用最后多少比例的数据，范围大于 0 且不超过 1。例如 0.1=最后 10%。',
+    'evaluation.max_output_variation': '输出变化总量 TV 的最大值，单位同 actuator：把所有相邻输出变化的绝对值相加；null=不设此门槛，仍计算指标。',
+    'evaluation.max_saturation_fraction': '允许输出处于最小/最大限位的时间比例，范围 0–1。例如 0.2=最多 20%；null=不设此门槛。',
+    'simulation': '离线验证条件：时长、测量噪声、模型偏差和扰动。各组使用相同条件。',
+    'simulation.duration_s': '每次完整闭环仿真时长，单位秒；须足够长观察稳定结果，并为 sample_time_s 的整数倍。',
+    'simulation.seed': '随机种子，整数。同一配置和种子可复现同一组测量噪声，方便公平比较；无噪声时通常不用改。',
+    'simulation.measurement_noise_std_c': '测温噪声的标准差，单位 °C。0=无噪声；例如 0.1 模拟有小幅测量噪声。噪声进入控制器，不直接改变真实温度。',
+    'simulation.gain_scale': '验证对象增益相对辨识模型的倍率。1=一致；0.8=实际对象增益低 20%，用于检查模型误差的影响。',
+    'simulation.disturbance_time_s': '持续扰动从仿真第几秒开始；null=不施加扰动。',
+    'simulation.disturbance_rate_c_per_s': '扰动开始后持续施加的温度变化率，单位 °C/秒；负值持续降温，正值持续升温，0=无效果。这不是一次性温度跳变。',
+    'simulation.temperature_stop_min_c': '仿真最低停止温度，单位 °C；跌破后立即中止本次仿真并判不合格，不是现场保护。',
+    'simulation.temperature_stop_max_c': '仿真最高停止温度，单位 °C；超过后立即中止本次仿真并判不合格，应覆盖初温和目标。',
+    'tuning': 'LLM 调优轮数、曲线抽样和停止条件；LLM 关闭时不执行这些迭代。',
+    'tuning.rounds': '每组最多向 LLM 请求多少轮参数建议，正整数；比较三组时最多为 3×轮数，可能另有失败重试。',
+    'tuning.samples_per_round': '发送给 LLM 的响应曲线抽样量，至少 5 点；这是抽样目标，实际数量可能略多，不会缩短完整仿真。',
+    'tuning.stable_rounds': '连续多少轮满足评价要求及平均误差条件后停止；正整数。',
+    'tuning.average_error_threshold_c': '提前停止使用的完整任务平均绝对温差阈值，单位 °C，计算为 IAE/仿真时长；还必须满足全部评价门槛。',
+    'tuning.compare_original': 'true=运行 original_zn、corrected_zn、selected 对照；false=只运行 selected，减少仿真和 LLM 调用。',
+    'llm': '可选的大模型建议。默认关闭，传统 Z-N/SIMC 整定仍可运行。启用后会将模型和仿真摘要发到指定 API。',
+    'llm.enabled': '是否使用 LLM：false=纯传统算法比较；true=传统算法选起点后继续请求 LLM 建议，仍需程序验证。',
+    'llm.provider': 'API 协议类型：openai=兼容 OpenAI 协议（也可连接 DeepSeek，并不表示必须用 OpenAI 模型）；anthropic=Anthropic 协议；auto=按地址判断。',
+    'llm.base_url': 'API 服务地址，例如 DeepSeek 为 https://api.deepseek.com/v1；不是网页聊天地址，需与 provider 匹配。',
+    'llm.model': 'API 提供的模型名称，例如 deepseek-flash；须是自己的服务可调用的模型。',
+    'llm.credentials_file': '本地密钥 JSON 文件路径，相对于本配置目录，读取其中 LLM_API_KEY；不要将真实密钥写到本文件或发布到 GitHub。',
+    'llm.api_key_env': '保存 API key 的环境变量名称；程序优先读该变量，再读 credentials_file。这是变量名，不是密钥本身。',
+    'llm.timeout_s': 'API 网络超时设置，单位秒；网络失败后可能重试或切换 HTTP 传输，不等于整次调优的总耗时上限。',
+    'llm.max_attempts': '一次建议请求的最大尝试次数，包括首次，例如 2=首次失败后最多再试一次。',
+    'llm.max_output_tokens': '单次回复的 token 上限，正整数；太小可能使 JSON 不完整，增大会增加潜在耗时和费用。',
+    'llm.json_output': 'true=向兼容 OpenAI 的 API 请求 JSON 格式；服务不支持时改 false。无论此项如何设置，程序都要解析并检查 PID。',
+    'llm.deepseek_thinking': '仅官方 DeepSeek 地址使用：disabled=关闭思考模式；enabled=开启；provider_default=不发送此设置，使用服务默认。',
+    'device': '设备接入设置，仅 use 模式创建接口。test 模式不连接设备；simulated 只操作内存中的模拟对象。',
+    'device.adapter': '接口类型：disabled=禁用；simulated=本机模拟；tcp=TCP JSONL 网关；serial=串口 JSONL 网关；custom=自己的适配器。',
+    'device.write_enabled': '允许设备参数写入的显式开关。use 必须为 true 且接口已配置；test 不因设 true 就连接设备。',
+    'device.object_id': '控制回路的唯一标识，例如 temperature-loop-1，必须与网关读回的对象一致，防止写错回路。',
+    'device.host': '仅 tcp 使用：网关 IP 或主机名，例如本机联调用 127.0.0.1；不使用 TCP 时留空。',
+    'device.port': '仅 tcp 使用：网关端口号，1–65535，必须与网关监听端口一致。',
+    'device.serial_port': '仅 serial 使用：串口名称，例如 Windows 的 COM3 或 Linux 的 /dev/ttyUSB0；其余接口留空。',
+    'device.baud': '仅 serial 使用：串口波特率，须与网关设置一致，例如 115200。',
+    'device.custom_factory': '仅 custom 使用：设备适配器工厂的“模块:函数”名称，须实现读状态、条件写参数、关闭接口。',
+    'device.timeout_s': '设备接口通信超时，单位秒；超时会报错，不会把未确认的写入当作成功。',
+    'device.max_sample_age_s': '接受设备状态的最大数据年龄，单位秒；过旧数据拒绝使用，设备需提供当前时间戳。',
+    'device.monitor_duration_s': '写入并读回确认后，继续观察设备的时长，单位秒；0=只做读回确认，不继续监测；不是永久监控服务。',
+    'device.monitor_interval_s': '设备监测间隔，单位秒，必须大于 0；模拟适配器按该设置计数并加速运行。',
+    'device.monitor_min_temperature_c': '设备监测允许的最低温度，单位 °C；越界报错，并按恢复配置尝试恢复参数。',
+    'device.monitor_max_temperature_c': '设备监测允许的最高温度，单位 °C；越界报错，不代替独立现场保护。',
+    'device.restore_on_fault': 'true=本程序已确认写入且配置版本仍属于本程序时，异常后尝试恢复旧 PID/目标；false=不尝试自动恢复。断线或被别人改动时不保证能恢复。',
+    'device.max_planning_temperature_change_c': '离线计算期间，设备温度相对最初读数允许变化多少 °C；写前超过此值则拒绝写入，需重新计算。',
+    'device.max_planning_output_change': '离线计算期间，设备输出相对最初读数允许变化多少，单位同 actuator；写前超过此值则拒绝写入。',
+    'output': '结果保存设置。',
+    'output.directory': '输出目录，相对于本配置文件目录；保存 report.html、pid.json、summary.json 等。同目录重复运行会更新结果。',
+    'output.save_csv': 'true=另存指标和响应 CSV 供绘图分析；false=不生成这些 CSV，仍保存报告和 JSON。',
+    '_help': '旧版兼容说明文字，供阅读；不参与控制计算，可以保留。',
+}
+for gain, name in [('p', '比例 Kp'), ('i', '积分 Ki'), ('d', '微分 Kd')]:
+    prefix = f'controller.limits.{gain}'
+    COMMENTS[prefix] = f'{name} 的护栏，单位与 initial_pid.{gain} 一致；这不是执行器输出范围。'
+    COMMENTS[prefix + '.min'] = f'{name} 允许的最小非负值。'
+    COMMENTS[prefix + '.max'] = f'{name} 允许的最大值；所有算法和 LLM 都要遵守。'
+    COMMENTS[prefix + '.max_increase_ratio'] = f'{name} 每次相对参照值的最大增长倍数，至少为 1；例如 3=最多增至 3 倍。参照为 0 时只执行绝对上下限。'
+for section in ('task', 'model', 'actuator', 'controller', 'evaluation', 'llm', 'device'):
+    COMMENTS['_help.' + section] = '兼容版中文摘要，供阅读，不是额外的参数设置。'
+
+
+def strip_comments(text):
+    """Mask comments outside strings, preserving offsets and line numbers."""
+    chars = list(text)
+    i = 0
+    quoted = False
+    while i < len(text):
+        if quoted:
+            if text[i] == '\\':
+                i += 2
+                continue
+            if text[i] == '"': quoted = False
+            i += 1
+            continue
+        if text[i] == '"':
+            quoted = True
+            i += 1
+            continue
+        if text.startswith('//', i):
+            end = text.find('\n', i)
+            if end < 0: end = len(text)
+        elif text.startswith('/*', i):
+            end = text.find('*/', i + 2)
+            if end < 0: raise ValueError('未闭合的 /* ... */ 注释')
+            end += 2
+        else:
+            i += 1
+            continue
+        for index in range(i, end):
+            if chars[index] not in '\r\n': chars[index] = ' '
+        i = end
+    return ''.join(chars)
+
+
+def parse_commented_json(text):
+    return json.loads(strip_comments(text))
+
+
+def render_commented_json(values, defaults=None):
+    """Render every key with its Chinese explanation and leaf default."""
+    defaults = values if defaults is None else defaults
+    def render(obj, reference, path='', depth=0):
+        lines = ['{']
+        items = list(obj.items())
+        pad = '  ' * (depth + 1)
+        for index, (key, value) in enumerate(items):
+            location = f'{path}.{key}' if path else key
+            if location not in COMMENTS: raise ValueError(f'配置缺少中文注释：{location}')
+            description = COMMENTS[location]
+            default = reference[key]
+            if not isinstance(value, dict):
+                description += ' 默认值：' + json.dumps(default, ensure_ascii=False) + '。'
+            lines.append(pad + '// ' + description)
+            if isinstance(value, dict):
+                nested = render(value, default, location, depth + 1)
+                lines.append(pad + json.dumps(key) + ': ' + nested[0])
+                lines.extend(nested[1:-1])
+                lines.append(nested[-1] + (',' if index < len(items) - 1 else ''))
+            else:
+                lines.append(pad + json.dumps(key) + ': ' + json.dumps(value, ensure_ascii=False) + (',' if index < len(items) - 1 else ''))
+        lines.append('  ' * depth + '}')
+        return lines
+    header = '// 温控项目配置（支持 // 行注释和 /* 块注释），程序可以直接读取。\n'
+    header += '// 只改冒号右侧的值；true=开启，false=关闭；null 的含义见各项说明。\n'
+    header += '// 初学先看 model（对象）、task（目标）、actuator（输出）、evaluation（合格条件）；LLM 和设备可先关闭。\n'
+    return header + '\n'.join(render(values, defaults)) + '\n'

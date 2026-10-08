@@ -1,0 +1,27 @@
+{
+  "name": "cooling_90_to_60",
+  "model": {
+    "K": -0.5,
+    "tau_s": 20,
+    "theta_s": 2,
+    "operating_temperature_c": 100
+  },
+  "task": {
+    "initial_temperature_c": 90,
+    "target_temperature_c": 60
+  },
+  "actuator": {
+    "unit": "valve_steps",
+    "max": 200,
+    "max_rate_per_s": 4
+  },
+  "controller": {
+    "sample_time_s": 0.5
+  },
+  "evaluation": {
+    "max_temperature_c": 100
+  },
+  "output": {
+    "directory": "../results/cooling"
+  }
+}

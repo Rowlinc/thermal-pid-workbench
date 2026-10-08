@@ -1,0 +1,13 @@
+{
+  "name": "adapter_integration",
+  "mode": "use",
+  "device": {
+    "adapter": "simulated",
+    "write_enabled": true,
+    "monitor_duration_s": 30,
+    "max_planning_output_change": 20
+  },
+  "output": {
+    "directory": "../results/use_simulated"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "custom_model",
+  "model": {
+    "type": "custom",
+    "source": "probe",
+    "custom_factory": "examples.custom_model:create_model"
+  },
+  "output": {
+    "directory": "../results/custom_model"
+  }
+}

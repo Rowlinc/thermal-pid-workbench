@@ -1,0 +1,10 @@
+{
+  "name": "30_to_100",
+  "task": {
+    "initial_temperature_c": 30,
+    "target_temperature_c": 100
+  },
+  "output": {
+    "directory": "../results/30_to_100"
+  }
+}
