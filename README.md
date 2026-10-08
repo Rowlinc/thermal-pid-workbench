@@ -16,6 +16,18 @@ python pid_project.py
 
 打开 `results/project/report.html` 看温度曲线和指标；打开 `results/project/pid.json` 看最终建议参数。没有达标参数时参数为 `null`，报告会列出原因。
 
+## 示例结果参考
+
+仓库的 [`result/`](result/) 文件夹给出了一个 **30°C → 100°C** 的默认离线测试结果，供使用者在运行前参考：
+
+- [`result.html`](result/result.html)：示例结果报告，包含温度响应、控制输出、Z-N/SIMC 候选及性能指标。
+- [`result-toread.md`](result/result-toread.md)：中文结果解释，逐步说明三组对照、指标含义、达标原因和最终 PID 如何使用。
+- [`pid.json`](result/pid.json)、[`summary.json`](result/summary.json) 和 CSV/SVG：最终参数、完整记录及可进一步分析的数据和图形。
+
+建议先阅读结果解释，再下载或克隆仓库，用浏览器打开 `result/result.html`。GitHub 文件页面展示 HTML 源码，不直接展示报告界面。
+
+该示例未启用 LLM、未连接设备，选出的合格方案是 Z-N PI；这些是配置模型上的仿真结果。`result/` 保存参考快照，自己运行后的新结果仍位于 `results/project/`。
+
 安装为命令行工具，或生成自己的配置：
 
 ```powershell

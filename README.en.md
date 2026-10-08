@@ -19,6 +19,12 @@ Relative paths resolve against the configuration directory. The default task is 
 Open `results/project/report.html`; `pid.json` contains qualified parameters with explicit units,
 or null if no candidate meets all requirements. `summary.json` records reproducibility information.
 
+A checked-in 30°C → 100°C offline example is available in [`result/`](result/):
+[`result.html`](result/result.html) contains curves and metrics, and
+[`result-toread.md`](result/result-toread.md) provides a Chinese walkthrough.
+Read the walkthrough on GitHub, then download or clone the repository and open the HTML
+in a browser. The example uses no LLM or hardware; new runs still write to `results/project/`.
+
 ```sh
 python -m pip install -e .
 thermal-pid --init my_project.json

@@ -1,5 +1,6 @@
 include LICENSE NOTICE README.md README.en.md CHANGELOG.md CONTRIBUTING.md project.json project.schema.json
 recursive-include examples *.json *.csv *.py *.html *.svg
+recursive-include result *.html *.md *.json *.csv *.svg
 recursive-include docs *.md
 recursive-include tests *.py
 global-exclude __pycache__ *.pyc
