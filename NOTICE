@@ -11,4 +11,6 @@ its source archive and SHA-256 are recorded in reference/SOURCE.json.
 Local modifications add corrected thermal FOPDT identification, SIMC PI tuning,
 offline comparisons, a configurable project workflow, explicit parameter units,
 gateway adapters, and related tests and documentation. See CHANGELOG.md.
+Version 0.4 additionally adds a visual desktop application, persistent run records,
+generic process quantities and units, integrating models, and compatibility routes.
 The new workflow and results do not imply endorsement by upstream authors.

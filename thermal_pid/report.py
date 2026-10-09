@@ -4,9 +4,13 @@ import csv
 import html
 import json
 from pathlib import Path
+from .process import quantity, FAILURE_LABELS
 
 
 def write_report(result, directory, save_csv=True):
+    process = quantity(result['config'])
+    unit = html.escape(process['unit'])
+    name = html.escape(process['name'])
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "summary.json").write_text(
@@ -25,6 +29,7 @@ def write_report(result, directory, save_csv=True):
                     recommendation["pid"] if recommendation else None
                 ),
                 "output_unit": result["config"]["actuator"]["unit"],
+                "process": process,
                 "sample_time_s": result["config"]["controller"]["sample_time_s"],
                 "validation_scope": "configured offline simulation",
             },
@@ -40,6 +45,7 @@ def write_report(result, directory, save_csv=True):
                 "w", encoding="utf-8-sig", newline=""
             ) as handle:
                 rows = arm["final"]["samples"]
+                rows = [{k:v for k,v in r.items() if k not in ('temperature_c','measured_temperature_c')} for r in rows]
                 writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
                 writer.writeheader()
                 writer.writerows(rows)
@@ -83,7 +89,7 @@ def write_report(result, directory, save_csv=True):
         if field == "temperature_c":
             y = 280 - (target - low) / (high - low) * 230
             lines.append(
-                f'<path d="M60 {y}H920" stroke="#555" stroke-dasharray="6 5"/><text x="760" y="{y-5}">目标 {target:g} °C</text>'
+                f'<path d="M60 {y}H920" stroke="#555" stroke-dasharray="6 5"/><text x="760" y="{y-5}">目标 {target:g} {unit}</text>'
             )
         svg = (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" role="img" aria-label="{html.escape(label)}"><path d="M60 40V280H920" fill="none" stroke="#666"/><text x="5" y="55">{high:.1f}</text><text x="5" y="280">{low:.1f}</text><text x="60" y="305">0 s</text><text x="830" y="305">{max_t:g} s</text>'
@@ -105,7 +111,7 @@ def write_report(result, directory, save_csv=True):
             f"{m['tail_mae_c']:.5f}",
             "未稳定" if m["settling_time_s"] is None else f"{m['settling_time_s']:.1f}",
             f"{m['output_tv']:.3f}",
-            "达标" if m["eligible"] else ", ".join(m["failures"]),
+            "达标" if m["eligible"] else ", ".join(FAILURE_LABELS.get(f,f) for f in m["failures"]),
         ]
         rows.append(
             "<tr>" + "".join("<td>" + html.escape(str(cell)) + "</td>" for cell in cells) + "</tr>"
@@ -127,8 +133,8 @@ def write_report(result, directory, save_csv=True):
             indent=2,
         )
     )
-    doc = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Thermal PID Workbench</title><style>body{max-width:1100px;margin:35px auto;padding:0 20px;font:16px/1.6 system-ui;color:#233}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}svg{width:100%;background:#f8faf9}code,pre{white-space:pre-wrap;overflow-wrap:anywhere}.legend{padding:10px}</style><h1>温控 PID 对比报告</h1>'
-    doc += f'<p>任务：{result["config"]["task"]["initial_temperature_c"]:g} → {target:g} °C。模式：{html.escape(result["config"]["mode"])}。{status}。</p><p>original_zn：原辨识算法 + Z-N；corrected_zn：修正辨识 + Z-N；selected：修正辨识后比较 Z-N / SIMC。启用 LLM 后，各组分别从自己的初始参数继续调优。所有候选均先经过 pid_safety 护栏。</p>'
+    doc = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>PID Workbench</title><style>body{max-width:1100px;margin:35px auto;padding:0 20px;font:16px/1.6 system-ui;color:#233}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}svg{width:100%;background:#f8faf9}code,pre{white-space:pre-wrap;overflow-wrap:anywhere}.legend{padding:10px}</style>' + f'<h1>{name} PID 对比报告</h1>'
+    doc += f'<p>任务：{result["config"]["task"]["initial_temperature_c"]:g} → {target:g} {unit}。模式：{html.escape(result["config"]["mode"])}。{status}。</p><p>original_zn：原辨识算法 + Z-N；corrected_zn：修正辨识 + Z-N；selected：比较适用于当前模型的候选。FOPDT 比较 Z-N / SIMC；积分模型使用 SIMC；手动模式从用户 PID 开始。启用 LLM 后，各组分别继续调优。所有候选均先经过 pid_safety 护栏。</p>'
     context = result.get("guardrail_context")
     if context:
         labels = {"absolute": "数值与绝对范围检查", "relative": "数值、绝对范围与相对增幅检查"}
@@ -153,8 +159,8 @@ def write_report(result, directory, save_csv=True):
                 "组别",
                 "初始算法",
                 "超调 %",
-                "IAE °C·s",
-                "末段 MAE °C",
+                f"IAE {unit}·s",
+                f"末段 MAE {unit}",
                 "调节时间 s",
                 "输出变化总量",
                 "评价",
@@ -173,7 +179,7 @@ def write_report(result, directory, save_csv=True):
         + "</div>"
     )
     doc += (
-        chart("temperature_c", "温度响应")
+        chart("temperature_c", process['name'] + '响应（' + process['unit'] + '）')
         + chart("output", "控制输出（" + result["config"]["actuator"]["unit"] + "）")
         + "<details><summary>辨识和算法选择详情</summary><pre>"
         + data
@@ -188,7 +194,7 @@ def write_report(result, directory, save_csv=True):
             ", ".join(f'{trial["pid"][k]:.6g}' for k in ("p", "i", "d")),
             f'{m["overshoot_pct"]:.3f}',
             f'{m["iae_c_s"]:.3f}',
-            "达标" if m["eligible"] else ", ".join(m["failures"]),
+            "达标" if m["eligible"] else ", ".join(FAILURE_LABELS.get(f,f) for f in m["failures"]),
         ]
         candidates += (
             "<tr>" + "".join("<td>" + html.escape(str(v)) + "</td>" for v in values) + "</tr>"

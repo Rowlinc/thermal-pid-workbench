@@ -11,6 +11,7 @@ DEFAULTS = {
     "schema_version": 1,
     "name": "temperature_30_to_100",
     "mode": "test",
+    "process": {"kind": "temperature", "name": "温度", "unit": "℃"},
     "model": {
         "type": "fopdt",
         "source": "parameters",
@@ -133,6 +134,12 @@ class ConfigError(ValueError):
 def _merge(default, provided, path=""):
     if not isinstance(provided, dict):
         raise ConfigError(f"{path or 'project'} must be an object")
+    if not path:
+        from .process import normalize
+        try:
+            provided = normalize(provided)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
     result = deepcopy(default)
     for key, value in provided.items():
         if not path and key == "_help":
@@ -176,8 +183,18 @@ def validate(cfg):
     if type(cfg["schema_version"]) is not int or cfg["schema_version"] != 1:
         raise ConfigError("unsupported schema_version")
     enum("mode", ("test", "use"))
-    enum("model.type", ("fopdt", "heating", "custom"))
-    enum("model.source", ("parameters", "csv", "probe"))
+    enum("process.kind", ("temperature", "pressure", "flow", "level", "speed", "custom"))
+    for key in ('name', 'unit'):
+        if not isinstance(cfg['process'][key], str) or not cfg['process'][key].strip():
+            raise ConfigError(f'process.{key} must be a nonempty string')
+    enum("model.type", ("fopdt", "integrating", "heating", "custom"))
+    enum("model.source", ("parameters", "csv", "probe", "manual"))
+    if cfg['model']['type'] == 'heating':
+        from .process import is_legacy_temperature
+        if not is_legacy_temperature(cfg):
+            raise ConfigError('heating is a Celsius temperature model; choose fopdt/integrating/custom for other quantities')
+    if cfg['model']['type'] == 'integrating' and cfg['model']['source'] not in ('parameters', 'manual'):
+        raise ConfigError('integrating model currently requires supplied K/theta; FOPDT CSV fitting is not an integrating identifier')
     enum("history.time_unit", ("s", "ms"))
     enum("controller.form", ("parallel", "ideal"))
     enum("controller.parameter_time_unit", ("s", "min"))
@@ -367,7 +384,7 @@ def validate(cfg):
         )
     if cfg["model"]["type"] == "custom" and not cfg["model"]["custom_factory"]:
         raise ConfigError("model.custom_factory must be module:function")
-    if cfg["model"]["source"] == "parameters" and cfg["model"]["type"] != "fopdt":
+    if cfg["model"]["source"] == "parameters" and cfg["model"]["type"] not in ("fopdt", "integrating"):
         raise ConfigError(
             "parameters source requires model.type=fopdt; choose probe for heating/custom models"
         )

@@ -3,20 +3,32 @@
 from copy import deepcopy
 import csv
 import importlib
+import importlib.util
 import hashlib
 import math
 from pathlib import Path
 import random
+import sys
 
 from system_id import first_order_model, system_identify
 from .config import ConfigError
 
 
 def load_factory(spec):
-    module, separator, name = spec.partition(":")
+    module, separator, name = spec.rpartition(":")
     if not separator or not module or not name:
         raise ConfigError("factory must be module:function")
-    factory = getattr(importlib.import_module(module), name)
+    if module.lower().endswith('.py'):
+        path = Path(module).resolve()
+        if not path.is_file():
+            raise ConfigError('custom Python model file does not exist')
+        definition = importlib.util.spec_from_file_location('pid_custom_' + hashlib.sha256(str(path).encode()).hexdigest()[:16], path)
+        loaded = importlib.util.module_from_spec(definition)
+        sys.modules[definition.name]=loaded
+        definition.loader.exec_module(loaded)
+    else:
+        loaded = importlib.import_module(module)
+    factory = getattr(loaded, name)
     if not callable(factory):
         raise ConfigError("factory must be callable")
     return factory
@@ -78,6 +90,26 @@ class HeatingModel:
         return self.temperature
 
 
+class IntegratingModel:
+    """IPDT: dy/dt = K * (delayed u - operating u). K has PV/(output*s)."""
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.temperature = cfg['task']['initial_temperature_c']
+        self.commands = []
+
+    def step(self, output, dt):
+        self.commands.append(output)
+        delay = self.cfg['model']['theta_s'] / dt
+        whole, fraction = math.floor(delay), delay % 1
+        index = len(self.commands) - 1 - whole
+        initial = self.cfg['task']['initial_output']
+        new = self.commands[index] if index >= 0 else initial
+        old = self.commands[index-1] if index-1 >= 0 else initial
+        effective = fraction*old + (1-fraction)*new
+        self.temperature += self.cfg['model']['K'] * self.cfg['simulation']['gain_scale'] * (effective-self.cfg['model']['operating_output']) * dt
+        return self.temperature
+
+
 class Plant:
     def __init__(self, cfg, nominal=False):
         self.cfg = deepcopy(cfg)
@@ -89,17 +121,27 @@ class Plant:
         kind = self.cfg["model"]["type"]
         if kind == "fopdt":
             self.model = FOPDTModel(self.cfg)
+        elif kind == 'integrating':
+            self.model = IntegratingModel(self.cfg)
         elif kind == "heating":
             self.model = HeatingModel(self.cfg)
         else:
-            self.model = load_factory(self.cfg["model"]["custom_factory"])(deepcopy(self.cfg))
+            from .process import public_config
+            factory_cfg=deepcopy(self.cfg)
+            canonical=public_config(self.cfg)
+            for section in canonical:
+                if isinstance(canonical[section],dict):
+                    factory_cfg[section].update(canonical[section])
+            self.model = load_factory(self.cfg["model"]["custom_factory"])(factory_cfg)
+            self.value_attribute = 'value' if hasattr(self.model, 'value') else 'temperature'
             if not callable(getattr(self.model, "step", None)) or not math.isfinite(
-                self.model.temperature
+                getattr(self.model, self.value_attribute, float('nan'))
             ):
                 raise ConfigError(
-                    "custom model must expose finite temperature and step(output, dt_s)"
+                    "custom model must expose finite value (legacy: temperature) and step(output, dt_s)"
                 )
-        self.true_temp = self.temp = float(self.model.temperature)
+        self.value_attribute = getattr(self, 'value_attribute', 'temperature')
+        self.true_temp = self.temp = float(getattr(self.model, self.value_attribute))
         self.pwm = self.cfg["task"]["initial_output"]
         self.time = 0.0
         self.rng = random.Random(self.cfg["simulation"]["seed"])
@@ -110,7 +152,7 @@ class Plant:
         s = self.cfg["simulation"]
         if s["disturbance_time_s"] is not None and self.time >= s["disturbance_time_s"]:
             self.true_temp += s["disturbance_rate_c_per_s"] * self.dt
-            self.model.temperature = self.true_temp
+            setattr(self.model, self.value_attribute, self.true_temp)
         self.temp = self.true_temp + self.rng.gauss(0, s["measurement_noise_std_c"])
 
 
@@ -143,6 +185,10 @@ def identify(cfg, base):
     cfg = deepcopy(cfg)
     m = cfg["model"]
     data = None
+    if m['source'] == 'manual' or m['type'] == 'integrating':
+        return cfg, dict(model=dict(K=m['K'], tau=m['tau_s'], theta=m['theta_s'],
+                                   kind=m['type']), source='user model; no FOPDT fit',
+                         warnings=['不进行FOPDT辨识；原Z-N对照不适用于本模型。']), None
     if m["source"] == "parameters":
         if m["type"] != "fopdt":
             raise ConfigError(

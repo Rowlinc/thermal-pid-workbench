@@ -13,6 +13,7 @@ from reference.original_system_id import system_identify as original_identify
 from .models import identify
 from .control import guard, guard_policy, simulate, rank
 from .config import ConfigError, validate
+from .process import checkpoint, quantity, public_config
 
 
 def _legacy_metrics(trial):
@@ -25,7 +26,7 @@ def _legacy_metrics(trial):
     }
 
 
-def make_tuner(cfg, base):
+def make_tuner(cfg, base, cancelled=None):
     l = cfg["llm"]
     key = os.environ.get(l["api_key_env"], "")
     if not key and l["credentials_file"]:
@@ -72,11 +73,12 @@ def make_tuner(cfg, base):
             debug_output=False,
             max_attempts=l["max_attempts"],
             request_options=options,
+            **({'abort_check': cancelled} if cancelled is not None else {}),
         )
     )
 
 
-def refine(cfg, initial, tuner, identified_model=None):
+def refine(cfg, initial, tuner, identified_model=None, cancelled=None, progress=None):
     current = initial
     best = initial
     best_deliverable = initial
@@ -84,13 +86,16 @@ def refine(cfg, initial, tuner, identified_model=None):
     stable = 0
     # Each proposal is evaluated from the same initial state for the full task.
     for index in range(cfg["tuning"]["rounds"]):
+        checkpoint(cancelled)
+        if progress:
+            progress({'type':'progress','message':f'LLM 调优 {initial.get("name", "")}：第 {index+1} 轮'})
         context = {
             key: cfg[key]
             for key in ("task", "model", "actuator", "controller", "evaluation", "simulation")
         }
         context.update(
             identified_fopdt=identified_model,
-            control_domain="thermal",
+            control_domain=quantity(cfg),
             pid_limits=cfg["controller"]["limits"],
             pid_limits_are_runtime_enforced=True,
             guardrail_policy=guard_policy(cfg, "llm"),
@@ -123,7 +128,8 @@ def refine(cfg, initial, tuner, identified_model=None):
             )
             break
         applied, notes = guard(cfg, current["pid"], candidate)
-        trial = simulate(cfg, applied)
+        checkpoint(cancelled)
+        trial = simulate(cfg, applied, cancelled=cancelled)
         rollback = should_rollback_to_best(_legacy_metrics(trial), _legacy_metrics(best)) or (
             best["metrics"]["eligible"] and not trial["metrics"]["eligible"]
         )
@@ -173,7 +179,10 @@ def refine(cfg, initial, tuner, identified_model=None):
     return best_deliverable, history
 
 
-def plan(cfg, base, tuner=None, identified=None):
+def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
+    checkpoint(cancelled)
+    if progress:
+        progress({'type':'progress','message':'检查对象模型／辨识历史数据'})
     if identified is None:
         cfg, identification, data = identify(cfg, base)
     else:
@@ -182,20 +191,41 @@ def plan(cfg, base, tuner=None, identified=None):
     m = identification["model"]
     candidates = []
     unavailable = []
-    raw = tuning_candidates(m["K"], m["tau"], m["theta"], cfg["algorithms"]["simc_lambda_s"])
+    if cfg['model']['source'] == 'manual':
+        pid = cfg['controller']['initial_pid']
+        raw = {'USER_PID':dict(Kp=pid['p'], Ki=pid['i'], Kd=pid['d'], method='user initial PID')}
+        include = ['USER_PID']
+    elif cfg['model']['type'] == 'integrating':
+        lam = cfg['algorithms']['simc_lambda_s']
+        lam = max(m['theta'], cfg['controller']['sample_time_s']) if lam is None else lam
+        kp = 1/(abs(m['K'])*(lam+m['theta']))
+        ti = 4*(lam+m['theta'])
+        raw = {'SIMC_PI':dict(Kp=kp, Ki=kp/ti, Kd=0, Ti=ti, Td=0, lambda_s=lam, model='IPDT')}
+        include = [name for name in cfg['algorithms']['include'] if name == 'SIMC_PI']
+        unavailable.extend({'name':n, 'reason':'Z-N FOPDT公式不适用于积分模型'} for n in cfg['algorithms']['include'] if n != 'SIMC_PI')
+    else:
+        raw = tuning_candidates(m["K"], m["tau"], m["theta"], cfg["algorithms"]["simc_lambda_s"])
+        include = cfg['algorithms']['include']
 
     def evaluate(name, parameters):
+        checkpoint(cancelled)
+        if progress:
+            progress({'type':'progress','message':f'护栏检查并仿真：{name}'})
         if "error" in parameters:
             unavailable.append({"name": name, "reason": parameters["error"]})
             return None
         requested = {k: abs(parameters[v]) for k, v in zip(("p", "i", "d"), ("Kp", "Ki", "Kd"))}
         applied, notes = guard(cfg, cfg["controller"]["initial_pid"], requested, stage="initial")
-        result = simulate(cfg, applied)
+        result = simulate(cfg, applied, cancelled=cancelled)
         result.update(name=name, requested_pid=requested, guard_notes=notes, formula=parameters,
                       guard_policy=guard_policy(cfg, "initial"))
+        if progress:
+            progress({'type':'candidate','name':name,'pid':applied,'requested_pid':requested,
+                      'metrics':result['metrics'],'guard_notes':notes,
+                      'samples':result['samples'][::max(1,len(result['samples'])//500)]})
         return result
 
-    for name in cfg["algorithms"]["include"]:
+    for name in include:
         result = evaluate(name, raw[name])
         if result:
             candidates.append(result)
@@ -203,7 +233,7 @@ def plan(cfg, base, tuner=None, identified=None):
         raise ConfigError("no calculable tuning candidates")
     selected = min(candidates, key=rank)
     arms = []
-    if cfg["tuning"]["compare_original"]:
+    if cfg["tuning"]["compare_original"] and data is not None:
         try:
             old = original_identify(*data[:3])
             parameters = old.get("ziegler_nichols", {}).get(
@@ -219,10 +249,11 @@ def plan(cfg, base, tuner=None, identified=None):
             arms.append(dict(corrected, name="corrected_zn"))
     arms.append(dict(selected, name="selected"))
     if cfg["llm"]["enabled"] and tuner is None:
-        tuner = make_tuner(cfg, base)
+        tuner = make_tuner(cfg, base, cancelled=cancelled) if cancelled is not None else make_tuner(cfg, base)
     results = []
     for arm in arms:
-        best, history = refine(cfg, arm, tuner, m) if cfg["llm"]["enabled"] else (arm, [])
+        checkpoint(cancelled)
+        best, history = refine(cfg, arm, tuner, m, cancelled, progress) if cfg["llm"]["enabled"] else (arm, [])
         # Device writes retain the final jump check; offline formula comparisons
         # retain numeric/absolute bounds without an arbitrary default-PID cap.
         deliverable, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], best["pid"], stage="delivery")
@@ -241,6 +272,10 @@ def plan(cfg, base, tuner=None, identified=None):
                 "final_delivery_guard_policy": guard_policy(cfg, "delivery"),
             }
         )
+        if progress:
+            progress({'type':'arm','name':arm['name'],'pid':best['pid'],
+                      'metrics':best['metrics'],'history':history,
+                      'samples':best['samples'][::max(1,len(best['samples'])//500)]})
     final = next(r for r in results if r["name"] == "selected")["final"]
     return {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -248,6 +283,8 @@ def plan(cfg, base, tuner=None, identified=None):
             json.dumps(cfg, sort_keys=True, allow_nan=False).encode()
         ).hexdigest(),
         "config": cfg,
+        "public_config": public_config(cfg),
+        "process": quantity(cfg),
         "guardrail_context": {
             "configured_policy": cfg["controller"]["guardrail_policy"],
             "initial_candidates": guard_policy(cfg, "initial"),

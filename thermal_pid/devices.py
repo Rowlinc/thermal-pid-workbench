@@ -9,6 +9,7 @@ import uuid
 from .config import ConfigError
 from .control import export_pid, import_pid, Controller
 from .models import Plant, load_factory
+from .process import quantity, is_legacy_temperature, checkpoint
 
 
 class DeviceError(RuntimeError):
@@ -37,7 +38,7 @@ class Gateway:
     def request(self, operation, **payload):
         request_id = uuid.uuid4().hex
         request = {
-            "protocol_version": 1,
+            "protocol_version": 1 if is_legacy_temperature(self.cfg) else 2,
             "request_id": request_id,
             "operation": operation,
             "object_id": self.cfg["device"]["object_id"],
@@ -53,7 +54,7 @@ class Gateway:
             if (
                 not isinstance(response, dict)
                 or response.get("request_id") != request_id
-                or response.get("protocol_version") != 1
+                or response.get("protocol_version") != request['protocol_version']
             ):
                 raise DeviceError("gateway reply identity/protocol mismatch")
             if response.get("ok") is not True:
@@ -69,6 +70,12 @@ class Gateway:
         return response["state"]
 
     def apply(self, pid, setpoint, expected_revision):
+        if not is_legacy_temperature(self.cfg):
+            return self.request('apply_parameters', pid=pid, setpoint=setpoint,
+                                value_unit=quantity(self.cfg)['unit'],
+                                process_kind=quantity(self.cfg)['kind'],
+                                expected_revision=expected_revision,
+                                initialization=self.cfg['controller']['initialization'])
         return self.request(
             "apply_parameters",
             pid=pid,
@@ -97,7 +104,7 @@ class SimulatedDevice:
     def read_state(self):
         self.plant.pwm = self.controller.step(self.plant.temp)
         self.plant.update()
-        return {
+        state = {
             "object_id": self.cfg["device"]["object_id"],
             "revision": self.revision,
             "timestamp_s": time.time(),
@@ -116,6 +123,10 @@ class SimulatedDevice:
             "output": self.plant.pwm,
             "setpoint_c": self.cfg["task"]["target_temperature_c"],
         }
+        if not is_legacy_temperature(self.cfg):
+            state.update(value=state.pop('temperature_c'), setpoint=state.pop('setpoint_c'),
+                         value_unit=quantity(self.cfg)['unit'], process_kind=quantity(self.cfg)['kind'])
+        return state
 
     def apply(self, pid, setpoint, expected_revision):
         if expected_revision != self.revision:
@@ -151,7 +162,21 @@ def connect(cfg):
     raise DeviceError("device adapter disabled")
 
 
+def adapt_state(cfg, state):
+    if not isinstance(state, dict):
+        raise DeviceError('invalid state object')
+    state = deepcopy(state)
+    if not is_legacy_temperature(cfg):
+        p = quantity(cfg)
+        if state.get('value_unit') != p['unit'] or state.get('process_kind') != p['kind']:
+            raise DeviceError('device process quantity/unit mismatch')
+        state['temperature_c'] = state.get('value')
+        state['setpoint_c'] = state.get('setpoint')
+    return state
+
+
 def validate_state(cfg, state):
+    state = adapt_state(cfg, state)
     if not isinstance(state, dict):
         raise DeviceError("invalid state object")
     expected = {
@@ -218,12 +243,13 @@ def same_parameters(left, right):
     )
 
 
-def deploy(cfg, device, before, recommendation, audit):
+def deploy(cfg, device, before, recommendation, audit, cancelled=None):
     """CAS write, independent readback, bounded monitoring and conflict-aware restore."""
     wanted = recommendation["export_pid"]
     target = cfg["task"]["target_temperature_c"]
     owned_revision = None
     try:
+        checkpoint(cancelled)
         if (
             cfg["mode"] != "use"
             or not cfg["device"]["write_enabled"]
@@ -245,6 +271,7 @@ def deploy(cfg, device, before, recommendation, audit):
             raise DeviceError(
                 "operating state moved too far during planning; regenerate recommendation"
             )
+        checkpoint(cancelled)
         ack = device.apply(wanted, target, before["revision"])
         if (
             not isinstance(ack, dict)
@@ -265,6 +292,7 @@ def deploy(cfg, device, before, recommendation, audit):
         audit.append({"event": "readback_verified", "state": after})
         deadline = time.monotonic() + cfg["device"]["monitor_duration_s"]
         while time.monotonic() < deadline:
+            checkpoint(cancelled)
             if cfg["device"]["adapter"] != "simulated":
                 time.sleep(
                     min(cfg["device"]["monitor_interval_s"], max(0, deadline - time.monotonic()))
@@ -298,7 +326,7 @@ def deploy(cfg, device, before, recommendation, audit):
         if owned_revision is not None and cfg["device"]["restore_on_fault"]:
             try:
                 # Read without accepting unsafe PV; restoration changes parameters only.
-                state = device.read_state()
+                state = adapt_state(cfg, device.read_state())
                 if (
                     state.get("object_id") != cfg["device"]["object_id"]
                     or state.get("revision") != owned_revision
@@ -308,7 +336,7 @@ def deploy(cfg, device, before, recommendation, audit):
                 if not -1 <= age <= cfg["device"]["max_sample_age_s"]:
                     raise DeviceError("restoration refused: stale state")
                 ack = device.apply(before["pid"], before["setpoint_c"], owned_revision)
-                restored = device.read_state()
+                restored = adapt_state(cfg, device.read_state())
                 if (
                     ack.get("ok") is not True
                     or ack.get("revision") == owned_revision

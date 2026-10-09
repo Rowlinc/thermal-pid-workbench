@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thermal-pid-workbench"
-version = "0.3.0"
-description = "Configurable thermal PID identification, Z-N/SIMC comparison and guarded LLM tuning"
+version = "0.4.0"
+description = "Visual single-loop PID workbench: process models, Z-N/SIMC, guarded LLM tuning and persistent runs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -17,13 +17,16 @@ dependencies = []
 llm = ["requests>=2.31", "openai>=1.30", "anthropic>=0.34"]
 serial = ["pyserial>=3.5"]
 legacy = ["requests>=2.31", "pyserial>=3.5", "textual>=8.1.1,<9"]
+full = ["requests>=2.31", "pyserial>=3.5", "textual>=8.1.1,<9", "openai>=1.30", "anthropic>=0.34"]
+desktop = ["pywebview>=5.4,<7", "pyinstaller>=6.10"]
 dev = ["pytest>=8,<10", "pytest-subtests>=0.14", "build>=1.2"]
 
 [project.scripts]
-thermal-pid = "pid_project:main"
+thermal-pid = "thermal_pid.cli:main"
+thermal-pid-gui = "thermal_pid.desktop:main"
 
 [tool.setuptools]
-py-modules = ["pid_project", "pid_safety", "system_id", "offline_compare", "tuning_pipeline", "simulator", "tuner", "launcher", "doctor", "benchmark"]
+py-modules = ["pid_project", "pid_safety", "system_id", "offline_compare", "tuning_pipeline", "simulator", "tuner", "launcher", "doctor", "benchmark", "desktop_app"]
 
 [tool.setuptools.packages.find]
 include = ["thermal_pid*", "core*", "sim*", "llm*", "hw*", "reference*"]
@@ -33,6 +36,13 @@ namespaces = true
 reference = ["SOURCE.json"]
 core = ["**/*.tcss"]
 sim = ["**/*.tcss"]
+thermal_pid = ["web/*.html", "web/*.css", "web/*.js"]
+
+[tool.setuptools.data-files]
+"share/thermal-pid-workbench" = ["firmware.cpp", "config.example.json", "requirements.txt", "llm-pid-tuner.spec"]
+"share/thermal-pid-workbench/font" = ["font/JetBrainsMonoNerdFont-Regular.ttf"]
+"share/thermal-pid-workbench/docs/en-US" = ["docs/en-US/FONT_SETUP.md", "docs/en-US/MATLAB_GUIDE.md"]
+"share/thermal-pid-workbench/docs/zh-CN" = ["docs/zh-CN/FONT_SETUP.md", "docs/zh-CN/MATLAB_GUIDE.md"]
 
 [tool.black]
 line-length = 100

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-10-09
+
+- Add a Windows desktop application and loopback browser UI with editable configurations, CSV preview/column mapping, model import, LLM service/key settings, device adapters and original workflows.
+- View results directly in the application and retain independent run records, curves, configuration, PID, metrics, guardrails and LLM history. Restore a record's settings for another run; exports remain optional.
+- Generalize process metadata, configured units, plots, metrics, LLM context and gateway checks to temperature, pressure, flow, level, speed and custom variables; support generic configuration aliases while retaining old temperature keys.
+- Add integrating dynamics and IPDT SIMC PI; refuse FOPDT CSV/Z-N formulas for integrating models. Add manual PID initialization for custom models and generic `value/step` Python file interfaces.
+- Preserve original launcher, serial hardware profiles, Python simulation, Simulink/multiple controller support and original files; expose entry routes and full dependency installation.
+- Add cooperative cancellation and live candidate snapshots, protect the local API with a session/host/origin check, keep credentials out of exports, and build from an explicit public resource allowlist.
+- Validate 440 project tests and 327 upstream contract tests (11 subtests in each run), actual Edge UI operations and the native Windows renderer. Physical hardware/real MATLAB commissioning remains outside this verification.
+- Produce a one-file Windows executable and portable ZIP with documentation/license; local results and private credentials are excluded.
+
 ## Unreleased — 2026-10-09
 
 - Remove unused `_help` metadata from current configurations/schema, redundant task aliases and duplicate example reports; retain compatibility when reading old configurations and keep one public reference snapshot in `result/`.

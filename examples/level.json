@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "name": "level_example",
+  "mode": "test",
+  "process": {
+    "kind": "level",
+    "name": "液位",
+    "unit": "m"
+  },
+  "model": {
+    "type": "integrating",
+    "source": "parameters",
+    "K": 0.015,
+    "tau_s": 1,
+    "theta_s": 1,
+    "operating_output": 50,
+    "heater_gain_c_per_output": 3,
+    "heater_tau_s": 10,
+    "heat_transfer_per_s": 0.5,
+    "cooling_per_s": 0.05,
+    "custom_factory": "",
+    "operating_value": 1
+  },
+  "history": {
+    "file": "",
+    "time_unit": "s",
+    "columns": {
+      "time": "timestamp",
+      "output": "pwm",
+      "value": "input"
+    },
+    "use_recorded_operating_point": true
+  },
+  "identification": {
+    "probe_duration_s": 10,
+    "probe_output_change": 10,
+    "max_relative_rmse": 0.05
+  },
+  "task": {
+    "ambient_temperature_c": 20,
+    "initial_heater_temperature_c": 30,
+    "initial_output": 50,
+    "initial_value": 1,
+    "target_value": 2
+  },
+  "actuator": {
+    "unit": "%",
+    "min": 0,
+    "max": 100,
+    "max_rate_per_s": 5
+  },
+  "controller": {
+    "form": "parallel",
+    "parameter_time_unit": "s",
+    "sample_time_s": 0.2,
+    "derivative_on": "measurement",
+    "derivative_filter_s": 0.5,
+    "initialization": "tracking",
+    "guardrail_policy": "auto",
+    "initial_pid": {
+      "p": 1,
+      "i": 0.01,
+      "d": 0
+    },
+    "limits": {
+      "p": {
+        "min": 0,
+        "max": 5000,
+        "max_increase_ratio": 3
+      },
+      "i": {
+        "min": 0,
+        "max": 500,
+        "max_increase_ratio": 4
+      },
+      "d": {
+        "min": 0,
+        "max": 500,
+        "max_increase_ratio": 4
+      }
+    },
+    "global_max_increase_ratio": 0
+  },
+  "algorithms": {
+    "include": [
+      "ZN_PID",
+      "ZN_PI",
+      "SIMC_PI"
+    ],
+    "simc_lambda_s": 5
+  },
+  "evaluation": {
+    "max_overshoot_pct": 5,
+    "max_settling_time_s": 150,
+    "min_settled_observation_s": 5,
+    "tail_fraction": 0.1,
+    "max_output_variation": null,
+    "max_saturation_fraction": null,
+    "max_value": 2.1,
+    "min_value": 0,
+    "max_tail_error": 0.02,
+    "settling_band": 0.02
+  },
+  "simulation": {
+    "duration_s": 200,
+    "seed": 0,
+    "gain_scale": 1,
+    "disturbance_time_s": null,
+    "measurement_noise_std": 0,
+    "disturbance_rate_per_s": 0,
+    "stop_min": 0,
+    "stop_max": 4
+  },
+  "tuning": {
+    "rounds": 4,
+    "samples_per_round": 60,
+    "stable_rounds": 2,
+    "compare_original": true,
+    "average_error_threshold": 1.2
+  },
+  "llm": {
+    "enabled": false,
+    "provider": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-flash",
+    "credentials_file": "../config.json",
+    "api_key_env": "LLM_API_KEY",
+    "timeout_s": 60,
+    "max_attempts": 2,
+    "max_output_tokens": 2048,
+    "json_output": true,
+    "deepseek_thinking": "disabled"
+  },
+  "device": {
+    "adapter": "disabled",
+    "write_enabled": false,
+    "object_id": "temperature-loop-1",
+    "host": "",
+    "port": 9100,
+    "serial_port": "",
+    "baud": 115200,
+    "custom_factory": "",
+    "timeout_s": 5,
+    "max_sample_age_s": 10,
+    "monitor_duration_s": 30,
+    "monitor_interval_s": 1,
+    "restore_on_fault": true,
+    "max_planning_output_change": 5,
+    "monitor_min_value": 0,
+    "monitor_max_value": 4,
+    "max_planning_value_change": 2
+  },
+  "output": {
+    "directory": "../results/level",
+    "save_csv": true
+  }
+}

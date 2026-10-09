@@ -3,12 +3,16 @@ import json
 
 
 COMMENTS = {
+    'process': '被控量定义：全流程使用这里指定的名称和单位，不自动换算。',
+    'process.kind': '被控量类型：temperature=温度；pressure=压力；flow=流量；level=液位；speed=转速；custom=其他单回路变量。',
+    'process.name': '被控量显示名称，例如压力、流量或液位。',
+    'process.unit': '被控量单位，例如 ℃、MPa、m³/h。模型、数据、目标和误差必须使用同一单位。',
     'schema_version': '配置格式版本。保持 1，通常不需要修改。',
     'name': '本次实验的名称，用来区分不同任务，可改成自己方便辨认的名字。',
     'mode': '运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。',
     'model': '对象模型：描述“改变加热功率或阀位后，温度如何响应”，不是本次任务的目标。',
-    'model.type': '模型类型：fopdt=一阶惯性加纯延迟；heating=两节点加热模型；custom=自己的模型。',
-    'model.source': '对象信息来源：parameters=直接填 K/τ/θ（仅 fopdt）；csv=从历史阶跃 CSV 辨识（仅 fopdt）；probe=在离线 heating/fopdt/custom 模型上做阶跃辨识，不操作现场。',
+    'model.type': '模型类型：fopdt=一阶惯性加滞后；integrating=积分加滞后；heating=摄氏两节点加热模型；custom=自定义模型。',
+    'model.source': '来源：parameters=已知 FOPDT K/τ/θ 或积分 K/θ；csv=历史阶跃 FOPDT 辨识；probe=离线模型阶跃辨识；manual=从用户初始 PID 仿真并可选 LLM，不套用辨识公式。',
     'model.K': '过程增益，单位 °C/输出单位。例如输出用 %，K=1 表示输出增加 1 个百分点，稳态温度约增加 1°C；降温对象可为负，不能为 0。probe 时也须填对方向。',
     'model.tau_s': '时间常数 τ，单位秒，必须大于 0：响应经过延迟后，再过 τ 秒，大约完成最终温度变化的 63.2%。参数来源为 parameters 时用于整定；CSV 时由数据覆盖。',
     'model.theta_s': '纯延迟 θ，单位秒，不能为负：改变输出后，等待多久才开始影响温度。Z-N 需要它大于 0；SIMC 可以为 0。',

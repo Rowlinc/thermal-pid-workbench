@@ -26,7 +26,9 @@ def create_run_directory(root):
             index += 1
 
 
-def run(cfg, base):
+def run(cfg, base, cancelled=None, progress=None):
+    from thermal_pid.process import checkpoint
+    checkpoint(cancelled)
     validate(cfg)
     device = None
     audit = []
@@ -57,15 +59,16 @@ def run(cfg, base):
             cfg["task"]["initial_temperature_c"] = before["temperature_c"]
             cfg["task"]["initial_output"] = before["output"]
             validate(cfg)
-        result = plan(cfg, base, identified=identified)
+        result = plan(cfg, base, identified=identified, cancelled=cancelled, progress=progress)
         result["device_status"] = "pending" if device is not None else "not_connected_test_mode"
         write_report(result, directory, cfg["output"]["save_csv"])
         if device is not None:
+            checkpoint(cancelled)
             from thermal_pid.devices import deploy, DeviceError
 
             if result["recommended"] is None:
                 raise DeviceError("no qualified recommendation; device write refused")
-            deploy(result["config"], device, before, result["recommended"], audit)
+            deploy(result["config"], device, before, result["recommended"], audit, cancelled=cancelled)
             result["device_status"] = (
                 "completed_simulated"
                 if cfg["device"]["adapter"] == "simulated"
@@ -115,9 +118,7 @@ def main(argv=None):
             print("Configuration valid; no device connection")
             return 0
         result, directory = run(cfg, base)
-        print(
-            f"Task: {cfg['task']['initial_temperature_c']:g} -> {cfg['task']['target_temperature_c']:g} C"
-        )
+        print(f"Task ({cfg['process']['name']}): {cfg['task']['initial_temperature_c']:g} -> {cfg['task']['target_temperature_c']:g} {cfg['process']['unit']}")
         print(
             f"Selected initialization: {result['selected_method']}; {result['recommendation_status']}"
         )

@@ -8,12 +8,15 @@ class ConfiguredTuner:
         self.client = client
 
     def analyze(self, prompt_data, history_text, tuning_mode=None, prompt_context=None):
-        system = """You propose PID parameters for a single-loop thermal process in OFFLINE simulation.
+        system = """You propose PID parameters for a single-loop process in OFFLINE simulation.
 Use the provided model, physical output units, sampling interval and evaluation constraints.
 The supplied gains are an already tuned starting point. Preserve useful integral action;
 do not restart a compulsory P-only tuning sequence. Seek qualified trials first, then
 smaller full-task IAE, then smaller output total variation. A configured absolute
-temperature bound is separate from the overshoot percentage requirement.
+process-variable bound is separate from the overshoot percentage requirement.
+Use the specified process name and unit (temperature, pressure, flow, level or custom).
+Legacy keys containing temperature or _c refer to that process variable in its configured
+unit; do not assume Celsius or convert units. Respect the stated model applicability.
 All gains p, i, d must be nonnegative finite magnitudes in continuous parallel form,
 with seconds as the time base: u = bias + direction*(p*error + i*integral(error dt)
 + d*filtered_derivative). Direction is supplied by the process gain sign outside this

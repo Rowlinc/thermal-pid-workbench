@@ -1,4 +1,7 @@
 include LICENSE NOTICE README.md README.en.md CHANGELOG.md CONTRIBUTING.md project.json project.schema.json
+include config.example.json firmware.cpp requirements.txt llm-pid-tuner.spec desktop_app.py
+recursive-include font *.ttf
+recursive-include thermal_pid/web *.html *.css *.js
 recursive-include examples *.json *.csv *.py *.html *.svg *.md
 recursive-include scripts *.py
 recursive-include result *.html *.md *.json *.csv *.svg

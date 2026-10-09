@@ -1,7 +1,19 @@
 # Modified for Thermal PID Workbench; see CHANGELOG.md and NOTICE.
 import json
+import inspect
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
+
+
+def _create_sdk_client(factory, **options):
+    """Keep timeout/retry options when supported, including older transports."""
+    try:
+        parameters = inspect.signature(factory).parameters
+        if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+            options = {key: value for key, value in options.items() if key in parameters}
+    except (ValueError, TypeError):
+        pass
+    return factory(**options)
 
 class BaseLLMProvider(ABC):
     def __init__(self, api_key: str, base_url: str, model: str, timeout: float):
@@ -26,7 +38,7 @@ class OpenAISDKProvider(BaseLLMProvider):
     def __init__(self, api_key: str, base_url: str, model: str, timeout: float):
         super().__init__(api_key, base_url, model, timeout)
         import openai
-        self.client = openai.OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
+        self.client = _create_sdk_client(openai.OpenAI, api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
     def execute_request(
         self,
@@ -75,7 +87,7 @@ class AnthropicSDKProvider(BaseLLMProvider):
     def __init__(self, api_key: str, base_url: str, model: str, timeout: float):
         super().__init__(api_key, base_url, model, timeout)
         import anthropic
-        self.client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
+        self.client = _create_sdk_client(anthropic.Anthropic, api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
     def execute_request(
         self,

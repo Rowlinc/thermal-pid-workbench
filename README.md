@@ -1,10 +1,35 @@
 # Thermal PID Workbench
 
-可配置的温控 PID 辨识、整定、仿真评价与设备接入工具。基于 [KINGSTON-115/llm-pid-tuner](https://github.com/KINGSTON-115/llm-pid-tuner) 扩展，保留 Apache-2.0 许可和原作者归属。
+可视化单回路 PID 辨识、整定、仿真评价与设备接入工具。支持温度、压力、流量、液位、转速和自定义被控量。基于 [KINGSTON-115/llm-pid-tuner](https://github.com/KINGSTON-115/llm-pid-tuner) 扩展，保留 Apache-2.0 许可和原作者归属。
 
 中文 | [English](README.en.md)
 
 提供 FOPDT 辨识、Z-N PID、Z-N PI、SIMC PI、可选 LLM 建议和确定性参数检查。默认任务为 30°C 升到 100°C；GitHub 上的默认配置为测试模式、关闭 LLM。
+
+## 可视化应用：推荐的使用方式
+
+已打包 Windows 应用的用户直接双击 `PIDWorkbench.exe`。不用编辑 JSON，也不用创建 Python 环境。
+在“任务与对象”选择温度、压力、流量或液位示例，再按实际对象修改模型、任务、执行器与评价要求。
+模型来源支持已知参数、历史 CSV 列选择、离线辨识、自定义 Python；原 Simulink 和串口流程也有独立可视化配置。
+LLM 开关、API 地址、模型名称、密钥都在“大模型调优”页设置。
+
+**结果直接显示在应用里，并自动保存为运行历史。** 每条记录保留当次配置、曲线、PID、指标、护栏及 LLM 轮次；以后打开记录就能再次查看，并载入配置重新测试。HTML/CSV/JSON 是可选分享和导出，不是应用的日常查看入口。
+
+从源码启动桌面应用的完整步骤：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[full,desktop]"
+.\.venv\Scripts\python.exe desktop_app.py
+```
+
+源码用户可用 `desktop_app.py --browser` 在浏览器中打开相同界面。
+应用数据在 `%LOCALAPPDATA%\ThermalPIDWorkbench`；源码目录的私有配置不会被自动覆盖。
+原有配置可通过界面导入。安装包不包含用户密钥、历史数据和 `results/`。
+
+详细输入、所有工作流和重新打包步骤见 [应用使用说明](docs/DESKTOP.md)；原项目功能保留说明见 [兼容性说明](docs/UPSTREAM_COMPATIBILITY.md)。
+这是通用单回路工作台，不保证任意历史数据都能自动建模。FOPDT CSV 辨识、积分模型、自定义模型采用各自适用的路径。
+现有命令行使用方式继续保留，下文的温控任务是默认示例。其他被控量通过 `process` 指定名称和单位；通用字段示例见 `examples/pressure.json`、`examples/flow.json`、`examples/level.json`。
 
 ## 1．先分清文件和模式
 

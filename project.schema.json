@@ -15,11 +15,41 @@
     "mode": {
       "type": "string",
       "default": "test",
+      "description": "运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。",
       "enum": [
         "test",
         "use"
-      ],
-      "description": "运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。"
+      ]
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "default": "temperature",
+          "description": "被控量类型：temperature=温度；pressure=压力；flow=流量；level=液位；speed=转速；custom=其他单回路变量。",
+          "enum": [
+            "temperature",
+            "pressure",
+            "flow",
+            "level",
+            "speed",
+            "custom"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "default": "温度",
+          "description": "被控量显示名称，例如压力、流量或液位。"
+        },
+        "unit": {
+          "type": "string",
+          "default": "℃",
+          "description": "被控量单位，例如 ℃、MPa、m³/h。模型、数据、目标和误差必须使用同一单位。"
+        }
+      },
+      "description": "被控量定义：全流程使用这里指定的名称和单位，不自动换算。"
     },
     "model": {
       "type": "object",
@@ -28,22 +58,24 @@
         "type": {
           "type": "string",
           "default": "fopdt",
+          "description": "模型类型：fopdt=一阶惯性加滞后；integrating=积分加滞后；heating=摄氏两节点加热模型；custom=自定义模型。",
           "enum": [
             "fopdt",
+            "integrating",
             "heating",
             "custom"
-          ],
-          "description": "模型类型：fopdt=一阶惯性加纯延迟；heating=两节点加热模型；custom=自己的模型。"
+          ]
         },
         "source": {
           "type": "string",
           "default": "parameters",
+          "description": "来源：parameters=已知 FOPDT K/τ/θ 或积分 K/θ；csv=历史阶跃 FOPDT 辨识；probe=离线模型阶跃辨识；manual=从用户初始 PID 仿真并可选 LLM，不套用辨识公式。",
           "enum": [
             "parameters",
             "csv",
-            "probe"
-          ],
-          "description": "对象信息来源：parameters=直接填 K/τ/θ（仅 fopdt）；csv=从历史阶跃 CSV 辨识（仅 fopdt）；probe=在离线 heating/fopdt/custom 模型上做阶跃辨识，不操作现场。"
+            "probe",
+            "manual"
+          ]
         },
         "K": {
           "type": "number",
@@ -94,6 +126,11 @@
           "type": "string",
           "default": "",
           "description": "仅 custom 使用：模型工厂的“模块:函数”名称，例如 examples.custom_model:create_model；普通内置模型留空。"
+        },
+        "operating_value": {
+          "type": "number",
+          "default": 20.0,
+          "description": "模型工作点被控量，单位 被控量单位，与 operating_output 对应的稳定被控量；不同于任务初始被控量。默认工作点为输出 0 时 20被控量单位。"
         }
       },
       "description": "对象模型：描述“改变加热功率或阀位后，温度如何响应”，不是本次任务的目标。"
@@ -110,11 +147,11 @@
         "time_unit": {
           "type": "string",
           "default": "s",
+          "description": "CSV 时间列的单位：s=秒；ms=毫秒。必须与数据一致，避免把对象速度辨识错 1000 倍。",
           "enum": [
             "s",
             "ms"
-          ],
-          "description": "CSV 时间列的单位：s=秒；ms=毫秒。必须与数据一致，避免把对象速度辨识错 1000 倍。"
+          ]
         },
         "columns": {
           "type": "object",
@@ -134,6 +171,11 @@
               "type": "string",
               "default": "pwm",
               "description": "CSV 中记录实际加热功率/阀位的列名，例如 pwm 或 valve_percent；单位须与 actuator 一致。"
+            },
+            "value": {
+              "type": "string",
+              "default": "input",
+              "description": "CSV 中记录实际被控量（被控量单位）的列名，例如 input 或 temperature_c。"
             }
           },
           "description": "CSV 列名映射。左边是程序固定名称，只改右边，使它与自己 CSV 的表头一致。"
@@ -196,6 +238,16 @@
           "type": "number",
           "default": 0.0,
           "description": "任务开始时的加热功率/阀位，单位同 actuator；也是 FOPDT 延迟前输入历史的假定值。use 模式从设备读回。"
+        },
+        "initial_value": {
+          "type": "number",
+          "default": 30.0,
+          "description": "任务开始时被控对象被控量，单位 被控量单位。use 模式读取设备实际被控量覆盖此值。"
+        },
+        "target_value": {
+          "type": "number",
+          "default": 100.0,
+          "description": "希望达到的目标被控量，单位 被控量单位。例如从 30被控量单位 升到 100被控量单位，这里填 100；修改目标后也要检查评价和停止被控量范围。"
         }
       },
       "description": "本次任务：告诉程序“从什么状态开始，要达到什么目标”。"
@@ -237,20 +289,20 @@
         "form": {
           "type": "string",
           "default": "parallel",
+          "description": "导出/设备的 PID 形式：parallel=Kp/Ki/Kd 并联式；ideal=Kp/Ti/Td 理想式。内部始终使用并联式，不支持串联式。",
           "enum": [
             "parallel",
             "ideal"
-          ],
-          "description": "导出/设备的 PID 形式：parallel=Kp/Ki/Kd 并联式；ideal=Kp/Ti/Td 理想式。内部始终使用并联式，不支持串联式。"
+          ]
         },
         "parameter_time_unit": {
           "type": "string",
           "default": "s",
+          "description": "导出/设备参数的时间单位：s=秒；min=分钟，程序自动换算。initial_pid 和 limits 始终按秒制填写。",
           "enum": [
             "s",
             "min"
-          ],
-          "description": "导出/设备参数的时间单位：s=秒；min=分钟，程序自动换算。initial_pid 和 limits 始终按秒制填写。"
+          ]
         },
         "sample_time_s": {
           "type": "number",
@@ -260,11 +312,11 @@
         "derivative_on": {
           "type": "string",
           "default": "measurement",
+          "description": "微分作用位置：measurement=对实际温度变化取微分，减少设定值突变冲击；error=对目标减温度的误差取微分。",
           "enum": [
             "measurement",
             "error"
-          ],
-          "description": "微分作用位置：measurement=对实际温度变化取微分，减少设定值突变冲击；error=对目标减温度的误差取微分。"
+          ]
         },
         "derivative_filter_s": {
           "type": "number",
@@ -274,11 +326,20 @@
         "initialization": {
           "type": "string",
           "default": "zero",
+          "description": "任务开始/换参数时的内部状态：zero=积分和微分状态复位；tracking=预置积分以匹配当前输出，方便平滑接管。设备须支持相同语义。",
           "enum": [
             "zero",
             "tracking"
-          ],
-          "description": "任务开始/换参数时的内部状态：zero=积分和微分状态复位；tracking=预置积分以匹配当前输出，方便平滑接管。设备须支持相同语义。"
+          ]
+        },
+        "guardrail_policy": {
+          "type": "string",
+          "default": "auto",
+          "description": "护栏策略：auto=test 模式初始公式候选和最终参数只检查有效数值与绝对范围，LLM 每轮仍限制相对增幅；use 模式全部保留相对设备当前参数的增幅检查。relative=所有模式沿用相对初始参数的限制，可复现旧结果。绝对范围与任务仿真评价始终保留。",
+          "enum": [
+            "auto",
+            "relative"
+          ]
         },
         "initial_pid": {
           "type": "object",
@@ -379,15 +440,6 @@
           "type": "number",
           "default": 0.0,
           "description": "启用相对增幅检查的阶段使用：0=只用每项自己的增长倍数；大于 1 时与每项倍数取较小值。auto+test 的初始公式与最终参数不使用增长倍数，但始终执行绝对范围检查。"
-        },
-        "guardrail_policy": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "relative"
-          ],
-          "default": "auto",
-          "description": "护栏策略：auto=test 模式初始公式候选和最终参数只检查有效数值与绝对范围，LLM 每轮仍限制相对增幅；use 模式全部保留相对设备当前参数的增幅检查。relative=所有模式沿用相对初始参数的限制，可复现旧结果。绝对范围与任务仿真评价始终保留。"
         }
       },
       "description": "控制器设置：PID 参数表示、计算周期、微分滤波以及程序级参数护栏。"
@@ -493,6 +545,32 @@
           ],
           "default": null,
           "description": "允许输出处于最小/最大限位的时间比例，范围 0–1。例如 0.2=最多 20%；null=不设此门槛。"
+        },
+        "max_value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": 102.0,
+          "description": "全过程允许的最高被控量，单位 被控量单位。例如 102=任何时刻不能超过 102被控量单位；null=关闭此评价门槛。"
+        },
+        "min_value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "description": "全过程允许的最低被控量，单位 被控量单位，降温任务尤其需要核对；null=关闭此评价门槛。"
+        },
+        "max_tail_error": {
+          "type": "number",
+          "default": 0.3,
+          "description": "仿真末段平均绝对偏差上限，单位 被控量单位。例如 0.3=末段平均需距目标不超过 0.3被控量单位。"
+        },
+        "settling_band": {
+          "type": "number",
+          "default": 1.0,
+          "description": "判断稳定的偏差带，单位 被控量单位。例如目标 100、此项 1，则稳定区间为 99–101被控量单位。"
         }
       },
       "description": "评价要求：定义什么结果算合格。所有启用门槛必须同时满足，再按 IAE 和输出变化择优。"
@@ -543,6 +621,26 @@
           "type": "number",
           "default": 150.0,
           "description": "仿真最高停止温度，单位 °C；超过后立即中止本次仿真并判不合格，应覆盖初温和目标。"
+        },
+        "measurement_noise_std": {
+          "type": "number",
+          "default": 0.0,
+          "description": "测温噪声的标准差，单位 被控量单位。0=无噪声；例如 0.1 模拟有小幅测量噪声。噪声进入控制器，不直接改变真实被控量。"
+        },
+        "disturbance_rate_per_s": {
+          "type": "number",
+          "default": 0.0,
+          "description": "扰动开始后持续施加的被控量变化率，单位 被控量单位/秒；负值持续降温，正值持续升温，0=无效果。这不是一次性被控量跳变。"
+        },
+        "stop_min": {
+          "type": "number",
+          "default": -20.0,
+          "description": "仿真最低停止被控量，单位 被控量单位；跌破后立即中止本次仿真并判不合格，不是现场保护。"
+        },
+        "stop_max": {
+          "type": "number",
+          "default": 150.0,
+          "description": "仿真最高停止被控量，单位 被控量单位；超过后立即中止本次仿真并判不合格，应覆盖初温和目标。"
         }
       },
       "description": "离线验证条件：时长、测量噪声、模型偏差和扰动。各组使用相同条件。"
@@ -575,6 +673,11 @@
           "type": "boolean",
           "default": true,
           "description": "true=运行 original_zn、corrected_zn、selected 对照；false=只运行 selected，减少仿真和 LLM 调用。"
+        },
+        "average_error_threshold": {
+          "type": "number",
+          "default": 1.2,
+          "description": "提前停止使用的完整任务平均绝对偏差阈值，单位 被控量单位，计算为 IAE/仿真时长；还必须满足全部评价门槛。"
         }
       },
       "description": "LLM 调优轮数、曲线抽样和停止条件；LLM 关闭时不执行这些迭代。"
@@ -636,12 +739,12 @@
         "deepseek_thinking": {
           "type": "string",
           "default": "disabled",
+          "description": "仅官方 DeepSeek 地址使用：disabled=关闭思考模式；enabled=开启；provider_default=不发送此设置，使用服务默认。",
           "enum": [
             "disabled",
             "enabled",
             "provider_default"
-          ],
-          "description": "仅官方 DeepSeek 地址使用：disabled=关闭思考模式；enabled=开启；provider_default=不发送此设置，使用服务默认。"
+          ]
         }
       },
       "description": "可选的大模型建议。默认关闭，传统 Z-N/SIMC 整定仍可运行。启用后会将模型和仿真摘要发到指定 API。"
@@ -653,14 +756,14 @@
         "adapter": {
           "type": "string",
           "default": "disabled",
+          "description": "接口类型：disabled=禁用；simulated=本机模拟；tcp=TCP JSONL 网关；serial=串口 JSONL 网关；custom=自己的适配器。",
           "enum": [
             "disabled",
             "simulated",
             "tcp",
             "serial",
             "custom"
-          ],
-          "description": "接口类型：disabled=禁用；simulated=本机模拟；tcp=TCP JSONL 网关；serial=串口 JSONL 网关；custom=自己的适配器。"
+          ]
         },
         "write_enabled": {
           "type": "boolean",
@@ -741,6 +844,21 @@
           "type": "number",
           "default": 5.0,
           "description": "离线计算期间，设备输出相对最初读数允许变化多少，单位同 actuator；写前超过此值则拒绝写入。"
+        },
+        "monitor_min_value": {
+          "type": "number",
+          "default": -20.0,
+          "description": "设备监测允许的最低被控量，单位 被控量单位；越界报错，并按恢复配置尝试恢复参数。"
+        },
+        "monitor_max_value": {
+          "type": "number",
+          "default": 120.0,
+          "description": "设备监测允许的最高被控量，单位 被控量单位；越界报错，不代替独立现场保护。"
+        },
+        "max_planning_value_change": {
+          "type": "number",
+          "default": 2.0,
+          "description": "离线计算期间，设备被控量相对最初读数允许变化多少 被控量单位；写前超过此值则拒绝写入，需重新计算。"
         }
       },
       "description": "设备接入设置，仅 use 模式创建接口。test 模式不连接设备；simulated 只操作内存中的模拟对象。"
@@ -761,48 +879,6 @@
         }
       },
       "description": "结果保存设置。"
-    },
-    "_help": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "task": {
-          "type": "string",
-          "default": "初始温度、目标温度、环境温度和加热器初始温度分别设置。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        },
-        "model": {
-          "type": "string",
-          "default": "K 是 °C/输出单位；tau、theta 用秒。已知模型选 parameters，历史数据选 csv，内置模型探测选 probe。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        },
-        "actuator": {
-          "type": "string",
-          "default": "填写实际输出单位、上下限和每秒最大变化量。null 表示不限制变化速率。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        },
-        "controller": {
-          "type": "string",
-          "default": "initial_pid 和护栏均为秒制并联式增益的非负幅值；输出方向由 K 的符号确定。form/time_unit 选择设备导出的表示方式。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        },
-        "evaluation": {
-          "type": "string",
-          "default": "同时约束超调、最高温度、末段温差和调节时间；null 表示关闭对应可选门槛。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        },
-        "llm": {
-          "type": "string",
-          "default": "默认不联网。启用后读取环境变量或本地 credentials_file；密钥不要写进这个可公开的项目文件。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        },
-        "device": {
-          "type": "string",
-          "default": "test 不创建设备接口。use 需配置 adapter 并显式开启 write_enabled。simulated 只用于接口联调，不能代表现场验证。",
-          "description": "兼容版中文摘要，供阅读，不是额外的参数设置。"
-        }
-      },
-      "description": "旧版兼容说明文字，供阅读；不参与控制计算，可以保留。"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

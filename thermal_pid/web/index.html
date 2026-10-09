@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PID Workbench</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#"
+        ><span class="brand-mark">∿</span
+        ><span>PID Workbench<small>通用单回路控制工作台</small></span></a
+      >
+      <div class="nav-caption">工作空间</div>
+      <nav id="nav">
+        <button data-page="setup" class="active">
+          <span>◈</span>任务与对象
+        </button>
+        <button data-page="model"><span>▥</span>模型与历史数据</button>
+        <button data-page="constraints"><span>⏣</span>控制器与评价</button>
+        <button data-page="llm"><span>✧</span>大模型调优</button>
+        <button data-page="device"><span>⇄</span>设备接入</button>
+        <button data-page="legacy"><span>⌘</span>原项目完整流程</button>
+        <button data-page="results"><span>∿</span>响应与结果</button>
+        <button data-page="history"><span>◷</span>运行历史</button>
+        <button data-page="advanced"><span>⚙</span>全部配置与方案</button>
+        <button data-page="help"><span>?</span>使用说明</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="live-dot"></span> 本机运行 · 结果独立保存<small
+          >LLM 开启时通过 API 联网</small
+        ><button id="workspace" class="subtle">打开数据文件夹 ↗</button>
+      </div>
+    </aside>
+    <div class="app">
+      <header>
+        <div>
+          <span class="eyebrow">CONTROL / IDENTIFY / COMPARE</span>
+          <h1 id="page-title">任务与对象</h1>
+        </div>
+        <div class="header-actions">
+          <span id="state-badge" class="badge">加载中</span
+          ><button id="save" class="secondary">保存配置</button
+          ><button id="run" class="primary">开始运行 <span>→</span></button>
+        </div>
+      </header>
+      <div id="notice" role="status" hidden></div>
+      <main>
+        <section id="page-setup" class="page active">
+          <div class="hero">
+            <div>
+              <span class="eyebrow">从对象到一组可验证的 PID</span>
+              <h2>你控制什么，<br />工作台就围绕它评价。</h2>
+              <p>
+                选择被控量，描述对象响应，设置目标。用同一模型比较候选，再查看曲线和合格条件。
+              </p>
+            </div>
+            <div class="hero-graphic">
+              <svg viewBox="0 0 330 150" aria-hidden="true">
+                <path
+                  d="M10 120H320M10 75H320M10 30H320"
+                  stroke="#c8ddd7"
+                  stroke-dasharray="4 5"
+                />
+                <path
+                  d="M10 120C45 120 45 15 95 15S140 62 170 52S230 43 320 45"
+                  fill="none"
+                  stroke="#e39059"
+                  stroke-width="3"
+                />
+                <path
+                  d="M10 120C70 120 60 75 110 57S170 45 320 45"
+                  fill="none"
+                  stroke="#17796b"
+                  stroke-width="4"
+                />
+                <circle cx="320" cy="45" r="5" fill="#17796b" /></svg
+              ><small>候选响应示意 · 实际结果以仿真为准</small>
+            </div>
+          </div>
+          <div class="step-strip">
+            <span><b>01</b> 选择对象</span><span><b>02</b> 输入模型</span
+            ><span><b>03</b> 设置目标与限制</span
+            ><span><b>04</b> 运行与比较</span>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>快速开始</h3>
+              <span class="muted">示例参数仅用于理解和离线测试</span>
+            </div>
+            <div id="presets" class="preset-grid">
+              <button data-preset="temperature">
+                温度<small>30 → 100 ℃</small></button
+              ><button data-preset="pressure">
+                压力<small>0.3 → 0.5 MPa</small></button
+              ><button data-preset="flow">
+                流量<small>10 → 60 m³/h</small></button
+              ><button data-preset="level">
+                液位<small>1 → 2 m · 积分模型</small>
+              </button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>本次任务</h3>
+            <div class="form-grid">
+              <label class="field"
+                ><span>实验名称</span
+                ><input id="experiment-name" type="text" /><small
+                  >用于区分任务；每次结果有独立时间戳目录。</small
+                ></label
+              ><label class="field"
+                ><span>运行流程</span
+                ><select id="workflow">
+                  <option value="project">
+                    通用工作台：辨识 → 候选比较 → 可选 LLM
+                  </option>
+                  <option value="python">原项目 Python 温控仿真</option>
+                  <option value="simulink">原项目 Simulink 调优</option>
+                  <option value="hardware">
+                    原项目串口硬件调优（含 DEMO）
+                  </option></select
+                ><small>原项目流程保留其硬件协议和多控制器能力。</small></label
+              >
+            </div>
+            <div data-sections="process,mode,task" class="generated"></div>
+            <div class="callout">
+              任务告诉系统“要达到什么”；评价要求告诉系统“怎样才算合格”。单位必须与模型和数据一致。
+            </div>
+          </div>
+          <div id="write-confirm" class="card warning" hidden>
+            <h3>设备参数写入</h3>
+            <label
+              ><input id="confirm-write" type="checkbox" />
+              本次已完成设备协议和参数语义核对，允许程序按配置写入设备。DEMO
+              为模拟设备。</label
+            >
+            <p>
+              设备接入能力不代表现场已完成调试。既有 DCS/PLC/SIS
+              保护体系仍负责过程保护。
+            </p>
+          </div>
+        </section>
+        <section id="page-model" class="page">
+          <div class="card">
+            <h3>对象模型</h3>
+            <p class="muted">
+              K 是控制输出对被控量的影响。τ、θ
+              用秒表示，适用于温度、压力、流量等；积分模型 K 的单位为“被控量单位
+              / 输出单位 / 秒”。
+            </p>
+            <div data-sections="model,identification" class="generated"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>导入历史 CSV</h3>
+              <label class="button secondary"
+                >选择 CSV<input id="csv-file" type="file" accept=".csv" hidden
+              /></label>
+            </div>
+            <div id="csv-drop" class="dropzone">
+              拖入 CSV，或点击右上角选择文件<br /><small
+                >至少三列：时间、实际控制输出、被控量。支持 UTF-8 /
+                GB18030，最大 20MB。</small
+              >
+            </div>
+            <div id="csv-preview"></div>
+            <div data-sections="history" class="generated"></div>
+            <p class="muted">
+              选择 CSV
+              后，请核对三列对应关系与时间单位。需要单次阶跃前基线和阶跃后稳定响应；数据不合适时系统会拒绝辨识。
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>自定义 Python 模型</h3>
+              <button id="model-template" class="secondary">
+                下载接口示例
+              </button>
+            </div>
+            <p>
+              模型提供 <code>value</code> 和
+              <code>step(output, dt_s)</code>，创建函数为
+              <code>create_model(config)</code>。选择“manual”可直接从用户初始
+              PID 开始，避免强行套用 FOPDT。
+            </p>
+            <label
+              ><input id="trust-model" type="checkbox" /> 我确认此 Python
+              文件可信，允许它在本机执行。</label
+            ><label class="button secondary"
+              >导入 .py<input id="model-file" type="file" accept=".py" hidden
+            /></label>
+          </div>
+        </section>
+        <section id="page-constraints" class="page">
+          <div class="card">
+            <h3>执行器与控制器</h3>
+            <div data-sections="actuator,controller" class="generated"></div>
+          </div>
+          <div class="card">
+            <h3>候选方法与合格要求</h3>
+            <div data-sections="algorithms,evaluation" class="generated"></div>
+            <div class="callout">
+              先比较是否合格，再比较 IAE、输出变化和调节时间。SIMC 不保证总比
+              Z-N 好；工作台按本次模型与要求选优。
+            </div>
+          </div>
+          <div class="card">
+            <h3>仿真与调优预算</h3>
+            <div data-sections="simulation,tuning" class="generated"></div>
+          </div>
+        </section>
+        <section id="page-llm" class="page">
+          <div class="card">
+            <h3>可选 LLM 调优</h3>
+            <p>
+              关闭后仍可辨识、计算 PID 并仿真。开启后，大模型通过 API
+              提出参数，程序先检查再完整仿真，保留最佳参数和回滚记录。
+            </p>
+            <div data-sections="llm" class="generated"></div>
+            <div class="form-grid">
+              <label class="field"
+                ><span
+                  >API 密钥 <span id="key-status" class="badge"></span></span
+                ><input
+                  id="api-key"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder="留空保留现有密钥"
+                /><small
+                  >保存到本机独立密钥文件；导出项目配置不包含密钥。环境变量优先。</small
+                ></label
+              ><label class="field"
+                ><span>清除本机密钥文件</span
+                ><input id="clear-key" type="checkbox" /><small
+                  >勾选后点击保存；不会删除环境变量。</small
+                ></label
+              >
+            </div>
+          </div>
+        </section>
+        <section id="page-device" class="page">
+          <div class="card">
+            <div class="card-head">
+              <h3>设备接口</h3>
+              <button id="ports" class="secondary">查看可用串口</button>
+            </div>
+            <div id="port-list"></div>
+            <div data-sections="device" class="generated"></div>
+            <div class="callout">
+              通用工作台通过网关读取状态、核对控制器语义、条件写入 PID
+              与目标、读回并监测。它不取代现场连续控制回路。温控旧协议 v1
+              兼容；其他被控量使用带类型和单位的 v2 协议。
+            </div>
+          </div>
+        </section>
+        <section id="page-legacy" class="page">
+          <div class="card">
+            <div class="card-head">
+              <h3>原项目完整配置</h3>
+              <label class="button secondary"
+                >导入原 config.json<input
+                  id="legacy-file"
+                  type="file"
+                  accept=".json"
+                  hidden
+              /></label>
+            </div>
+            <p>
+              保留原串口硬件配置、Python 模拟、Simulink 主/第二 PID、分立 P/I/D
+              模块、日志信号、代理与调优控制。API
+              服务统一使用“大模型调优”页的设置；原流程的其他设置在下面修改。
+            </p>
+            <button id="pick-simulink" class="secondary">
+              选择本机 Simulink 文件
+            </button>
+            <div data-sections="legacy" class="generated"></div>
+            <label class="field"
+              ><span>原流程附加提示上下文（JSON，可选）</span
+              ><textarea id="prompt-overrides" rows="5">{}</textarea
+              ><small
+                >保留原项目提示扩展能力，例如对象特性、控制器角色和目标补充说明。</small
+              ></label
+            >
+          </div>
+        </section>
+        <section id="page-results" class="page">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>本次运行</h3>
+                <p id="job-info" class="muted">
+                  尚未运行。先配置对象与目标，然后点击“开始运行”。
+                </p>
+              </div>
+              <div class="row">
+                <button id="pause" class="secondary" disabled>暂停</button
+                ><button id="resume" class="secondary" disabled>继续</button
+                ><button id="stop" class="danger" disabled>停止</button>
+              </div>
+            </div>
+            <div id="result-summary" class="metric-grid"></div>
+            <div id="downloads" class="downloads"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3 id="response-title">被控量响应</h3>
+              <div class="row">
+                <button data-chart="value" class="chart-tab active">
+                  被控量</button
+                ><button data-chart="output" class="chart-tab">控制输出</button
+                ><button id="download-chart" class="subtle">保存曲线 ↓</button>
+              </div>
+            </div>
+            <div id="legend" class="legend"></div>
+            <div id="chart" class="chart">
+              <p class="empty">运行后显示响应曲线</p>
+            </div>
+            <small class="muted"
+              >指向曲线查看数值；点击图例隐藏／显示对应组。曲线为配置模型上的结果。</small
+            >
+          </div>
+          <div class="card">
+            <h3>当次任务与对象</h3>
+            <div id="run-config" class="table-wrap"></div>
+          </div>
+          <div class="card">
+            <h3>性能指标与最终参数</h3>
+            <div class="table-wrap"><table id="metrics"></table></div>
+            <p class="muted">
+              IAE＝累计绝对偏差（被控量单位·秒），越小越好；末段
+              MAE＝末段平均绝对偏差；输出
+              TV＝相邻输出变化绝对值之和。先看达标与否。
+            </p>
+          </div>
+          <div class="card">
+            <h3>Z-N / SIMC 候选与护栏</h3>
+            <div class="table-wrap"><table id="candidates"></table></div>
+          </div>
+          <div class="card">
+            <h3>运行记录 / LLM 轮次 / 回滚</h3>
+            <div id="logs" class="logs">等待运行…</div>
+          </div>
+        </section>
+        <section id="page-history" class="page">
+          <div class="card">
+            <div class="card-head">
+              <h3>运行历史</h3>
+              <button id="refresh-history" class="secondary">刷新</button>
+            </div>
+            <p class="muted">
+              每次运行都有独立配置和结果记录，关闭应用后仍可查看。
+            </p>
+            <div id="history-list"></div>
+          </div>
+        </section>
+        <section id="page-advanced" class="page">
+          <div class="card">
+            <h3>配置与方案</h3>
+            <div class="row">
+              <label class="button secondary"
+                >导入项目 JSON<input
+                  id="project-file"
+                  type="file"
+                  accept=".json"
+                  hidden /></label
+              ><button id="export-project" class="secondary">
+                导出项目 JSON</button
+              ><button id="export-legacy" class="secondary">
+                导出原流程配置
+              </button>
+            </div>
+            <div class="form-grid">
+              <label class="field"
+                ><span>保存方案名称</span
+                ><input id="profile-name" placeholder="例如：压力回路A" /><small
+                  >文字、数字、下划线或短横线。</small
+                ></label
+              ><label class="field"
+                ><span>已有方案</span
+                ><select id="profiles"></select
+              ></label>
+            </div>
+            <div class="row">
+              <button id="profile-save" class="secondary">保存为方案</button
+              ><button id="profile-load" class="secondary">加载方案</button>
+            </div>
+            <div data-sections="output" class="generated"></div>
+            <button id="pick-output-folder" class="secondary">
+              选择结果根目录
+            </button>
+          </div>
+          <div class="card">
+            <h3>全部配置字段</h3>
+            <input id="field-search" placeholder="搜索字段名称或说明" />
+            <div id="all-fields"></div>
+          </div>
+        </section>
+        <section id="page-help" class="page">
+          <div class="card">
+            <div class="card-head">
+              <h3>运行环境与连接检查</h3>
+              <button id="diagnostics" class="secondary">执行检查</button>
+            </div>
+            <label
+              ><input id="probe-api" type="checkbox" />同时测试 LLM
+              API（实际联网并发出一次小请求，不写设备）</label
+            >
+            <div id="diagnostic-results" class="table-wrap"></div>
+            <p class="downloads">
+              <a href="/resource/firmware.cpp" target="_blank">原固件源码</a
+              ><a href="/resource/config.example.json" target="_blank"
+                >原配置模板</a
+              ><a href="/resource/docs/zh-CN/MATLAB_GUIDE.md" target="_blank"
+                >原 Simulink 指南</a
+              >
+            </p>
+          </div>
+          <div class="card prose">
+            <h2>从这里开始</h2>
+            <ol>
+              <li>选择一个示例，或填写被控量、单位和目标。</li>
+              <li>
+                选择对象来源：已知参数、历史
+                CSV、离线模型辨识，或自定义模型＋用户 PID。
+              </li>
+              <li>
+                填写执行器范围与合格要求。模型、数据、目标和误差使用同一单位。
+              </li>
+              <li>需要大模型时开启 LLM 并保存 API 密钥；否则关闭即可。</li>
+              <li>
+                点击开始运行。结果先看是否合格，再看响应、IAE、末段误差和控制输出变化。
+              </li>
+              <li>
+                查看报告、导出 PID
+                或打开结果目录。设备接入前配置协议和读写语义。
+              </li>
+            </ol>
+            <h3>支持范围</h3>
+            <p>
+              这是单回路 PID 工作台。FOPDT
+              是一阶惯性加滞后；积分模型适合已知积分动力学的对象。模型类型与整定公式必须匹配。CSV
+              当前只自动辨识 FOPDT；复杂对象通过自定义模型或原 Simulink
+              流程接入。提供一个目标值并不足以描述设备。
+            </p>
+            <h3>参数形式</h3>
+            <p>
+              内部使用秒制并联式非负幅值 p/i/d，方向由 K
+              决定；导出根据所选并联式 Kp/Ki/Kd 或理想式 Kp/Ti/Td
+              和秒／分钟正确换算。不同被控量的增益单位也不同，不能直接搬用另一对象参数。
+            </p>
+            <h3>三组对比</h3>
+            <p>
+              original_zn：原辨识算法＋Z-N；corrected_zn：修正辨识＋Z-N；selected：在同一模型上比较适用候选后选优。启用
+              LLM
+              时，各组从自己的初始参数继续调优。原算法组是统一仿真条件下的算法基线，并非整个旧项目的性能结论。
+            </p>
+            <h3>模型文件与硬件</h3>
+            <p>
+              Python 自定义模型在本机执行，应由用户确认来源。Simulink 需要安装
+              MATLAB/Simulink 和兼容 Python Engine。通用 TCP/串口网关与原 CSV
+              串口协议是不同接入方式；原项目硬件配置全部保留。应用不内置任意厂商
+              PLC/DCS 驱动。
+            </p>
+            <h3>保存位置</h3>
+            <p id="workspace-info"></p>
+            <p>
+              每次结果独立保存；配置和 CSV 保存在本机；API
+              密钥不会导出到方案或公共配置。需要 API
+              时会联网，仿真与参数检查在本机进行。
+            </p>
+            <h3>保护机制</h3>
+            <p>
+              数值和范围检查、LLM
+              增幅检查、完整仿真评价、最佳参数保留与回滚继续生效。实际过程保护由现场
+              DCS/PLC/SIS 等既有体系负责；仿真达标不等于装置已完成投运验证。
+            </p>
+          </div>
+        </section>
+      </main>
+      <footer>
+        PID Workbench
+        <span>基于 KINGSTON-115/llm-pid-tuner 扩展 · Apache-2.0</span>
+      </footer>
+    </div>
+    <script>
+      window.__SESSION__ = __SESSION_JSON__;
+    </script>
+    <script src="/app.js"></script>
+  </body>
+</html>

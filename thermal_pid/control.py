@@ -5,6 +5,7 @@ from system_id import parallel_to_ideal, ideal_to_parallel
 from pid_safety import apply_pid_guardrails
 from .models import Plant
 from .config import ConfigError
+from .process import checkpoint, quantity
 
 
 def guard_policy(cfg, stage="llm"):
@@ -194,10 +195,14 @@ def metrics(cfg, rows, aborted=None):
     if aborted:
         failures.append("simulation_aborted")
     result.update(eligible=not failures, failures=failures)
+    result.update(iae=result['iae_c_s'], tail_mae=result['tail_mae_c'],
+                  steady_state_error=result['steady_state_error_c'],
+                  max_value=result['max_temperature_c'], min_value=result['min_temperature_c'],
+                  value_unit=quantity(cfg)['unit'])
     return result
 
 
-def simulate(cfg, pid):
+def simulate(cfg, pid, cancelled=None):
     plant = Plant(cfg)
     controller = Controller(cfg, pid)
     rows = [
@@ -210,6 +215,7 @@ def simulate(cfg, pid):
     ]
     abort = None
     for _ in range(round(cfg["simulation"]["duration_s"] / plant.dt)):
+        checkpoint(cancelled)
         plant.pwm = controller.step(plant.temp)
         plant.update()
         if not all(math.isfinite(x) for x in (plant.true_temp, plant.temp, plant.pwm)):
@@ -230,6 +236,9 @@ def simulate(cfg, pid):
         ):
             abort = "temperature stop bound exceeded"
             break
+    for row in rows:
+        row['value'] = row['temperature_c']
+        row['measured_value'] = row['measured_temperature_c']
     return {
         "pid": dict(pid),
         "export_pid": export_pid(cfg, pid),

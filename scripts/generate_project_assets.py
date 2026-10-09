@@ -6,6 +6,7 @@ import json
 import math
 from pathlib import Path
 import sys
+import argparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -46,7 +47,12 @@ def schema(value):
 
 
 def main():
-    (ROOT / 'project.json').write_text(render_commented_json(DEFAULTS), encoding='utf-8')
+    parser=argparse.ArgumentParser(description='Refresh editor schema; defaults/examples only with explicit switches')
+    parser.add_argument('--write-defaults',action='store_true')
+    parser.add_argument('--examples',action='store_true')
+    args=parser.parse_args()
+    if args.write_defaults:
+        (ROOT / 'project.json').write_text(render_commented_json(DEFAULTS), encoding='utf-8')
     definition = schema(DEFAULTS)
     def describe(node, path=''):
         for key, field in node.get('properties', {}).items():
@@ -63,8 +69,9 @@ def main():
     )
     enums = {
         "mode": ["test", "use"],
-        "model.type": ["fopdt", "heating", "custom"],
-        "model.source": ["parameters", "csv", "probe"],
+        "process.kind": ["temperature","pressure","flow","level","speed","custom"],
+        "model.type": ["fopdt", "integrating", "heating", "custom"],
+        "model.source": ["parameters", "csv", "probe", "manual"],
         "history.time_unit": ["s", "ms"],
         "controller.form": ["parallel", "ideal"],
         "controller.parameter_time_unit": ["s", "min"],
@@ -102,7 +109,18 @@ def main():
         for key in path.split("."):
             node = node["properties"][key]
         node["type"] = ["number", "null"]
+    from thermal_pid.process import ALIASES
+    for section, aliases in ALIASES.items():
+        node=definition
+        for part in section.split('.'):
+            node=node['properties'][part]
+        for new,old in aliases.items():
+            node['properties'][new]=deepcopy(node['properties'][old])
+            field=node['properties'][new]
+            field['description']=field['description'].replace('°C','被控量单位').replace('温度','被控量').replace('温差','偏差')
     save("project.schema.json", definition)
+    if not args.examples:
+        return
     save(
         "examples/history.json",
         {
