@@ -1,6 +1,6 @@
 # 配置文件怎么填
 
-入口为 `python pid_project.py --config project.json`。全部公开输入放在该文件；每项上方有中文注释，解释含义、单位、可选值和默认值。只改冒号右边的值；删除某字段时使用内置默认值。程序支持 `//` 行注释和 `/* ... */` 块注释，原来的纯 JSON 仍可读取。此模板是带注释的 JSON，普通 `json.loads` 不能直接读取；读取配置应使用项目的 `load_project`。逗号和双引号仍须遵守 JSON 语法。未知字段和不合理范围会报错，避免拼错后默默用默认值。文件路径相对于该配置文件所在目录，环境变量从启动进程读取。
+先按[README](../README.md)创建并安装项目虚拟环境。Windows入口为 `.\.venv\Scripts\python.exe pid_project.py --config project.json`。全部公开输入放在该文件；每项上方有中文注释，解释含义、单位、可选值和默认值。只改冒号右边的值；删除某字段时使用内置默认值。程序支持 `//` 行注释和 `/* ... */` 块注释，原来的纯 JSON 仍可读取。此模板是带注释的 JSON，普通 `json.loads` 不能直接读取；读取配置应使用项目的 `load_project`。逗号和双引号仍须遵守 JSON 语法。未知字段和不合理范围会报错，避免拼错后默默用默认值。文件路径相对于该配置文件所在目录，环境变量从启动进程读取。
 
 `python pid_project.py --init my_project.json` 创建完整默认模板；`--validate` 只检查配置，不连接设备。
 `project.schema.json` 可关联到编辑器提供补全；程序中的交叉检查仍是最终依据。
@@ -84,6 +84,8 @@
 绝对上下限是用户配置的程序参数范围，不是自动辨识出的现场安全边界。每个候选仍经过输出限幅、速率限制、抗积分饱和和完整任务仿真评价；没有达标参数时不会给出合格推荐。报告明确列出各阶段实际护栏策略以及公式计算/护栏后参数。护栏只约束程序参数，不等价于化工过程保护。
 
 ## LLM
+
+完整安装、密钥与四种运行组合见[README](../README.md)。`project.json`中的`llm`设置开关、服务、模型；根目录`config.json`只需提供`LLM_API_KEY`。`examples/deepseek.json`是仓库自带的可选任务配置，不是密钥文件。
 
 设置 `llm.enabled=true`。密钥读取顺序：`llm.api_key_env` 指定的环境变量 → `llm.credentials_file` 中的 `LLM_API_KEY`。保留本地 `config.json` 兼容以前配置，密钥不写入 `project.json`。
 

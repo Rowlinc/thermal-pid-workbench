@@ -4,120 +4,375 @@
 
 中文 | [English](README.en.md)
 
-**一个 `project.json` 配置对象模型/历史数据、温度任务、执行器、控制器和评价要求。** 提供 Z-N PID、Z-N PI、SIMC PI 及可选 LLM 参数建议，所有建议先通过 `pid_safety.py`，再进入完整任务仿真。默认任务为 30°C 升到 100°C，默认不调用 LLM。
+提供 FOPDT 辨识、Z-N PID、Z-N PI、SIMC PI、可选 LLM 建议和确定性参数检查。默认任务为 30°C 升到 100°C；GitHub 上的默认配置为测试模式、关闭 LLM。
 
-## 快速开始
+## 1．先分清文件和模式
 
-需要 Python 3.10 或以上。下载源码、进入项目目录，基础离线功能无需第三方依赖：
+| 文件 | 内容 | 从哪里来 |
+|---|---|---|
+| `project.json` | 对象模型/历史数据、目标温度、控制器、执行器、评价标准、LLM服务设置及设备接口 | 仓库自带，每项有中文注释 |
+| `config.json` | 私有 API 密钥，本入口读取其中的 `LLM_API_KEY` | 用 LLM 时由你在项目根目录创建；不上传 GitHub |
+| `pid_project.py` | 读取配置，执行整定、仿真及可选设备集成的主入口 | 仓库自带 |
+| `examples/deepseek.json` | 已开启 LLM 的可选任务配置示例，密钥路径指向根目录 `config.json` | 仓库自带；不是密钥文件，主流程无需使用它 |
+| `project.use.local.json` | 你的设备接入配置，与测试配置分开保存 | 按下文复制创建；已被 Git 忽略 |
+| 历史 CSV | 用于辨识的输出阶跃与温度响应数据 | 自己提供，独立于配置文件保存 |
 
-```powershell
-python pid_project.py
-```
+**模型、服务地址、模型名称、LLM开关放在 `project.json`；密钥放在 `config.json`。不用LLM时，不需要创建密钥文件。** 如果现有 `config.json` 还有其他原项目字段，可保留；`pid_project.py` 不从其中读取服务地址或模型名称，它们由任务配置决定。
 
-每次运行会创建 `results/project/<时间戳>/`，控制台会打印本次目录和报告地址。打开其中的 `report.html` 看温度曲线和指标；打开 `pid.json` 看最终建议参数。没有达标参数时参数为 `null`，报告会列出原因。
+| 组合 | `mode` | `llm.enabled` | 实际行为 |
+|---|---|---|---|
+| 测试，不用LLM | `test` | `false` | 本地辨识、传统整定、仿真、输出报告；不调用LLM，不连接设备 |
+| 测试，使用LLM | `test` | `true` | 在上述流程中通过网络API请求LLM建议；对象与验证仍在本地仿真 |
+| 使用，不用LLM | `use` | `false` | 离线整定验证后，通过明确配置的适配器读设备、写合格PID和目标、读回并监测 |
+| 使用，使用LLM | `use` | `true` | 使用模式中加入联网LLM参数建议；LLM不直接控制设备 |
 
-## 示例结果参考
+`test` 是参数建议与仿真模式；`use` 是设备集成工作流，会写入PID和目标温度。连续闭环由设备控制器运行。随包验证覆盖软件、模拟设备和本机TCP，**尚未完成真实化工装置投产验证**；现场模型、协议、单位与控制律需要适配，已有 DCS/PLC/SIS 保护保持独立。
 
-仓库的 [`result/`](result/) 文件夹给出了一个 **30°C → 100°C** 的默认离线测试结果，供使用者在运行前参考：
+## 2．首次安装：创建本项目的 Python 环境
 
-- [`result.html`](result/result.html)：示例结果报告，包含温度响应、控制输出、Z-N/SIMC 候选及性能指标。
-- [`result-toread.md`](result/result-toread.md)：中文结果解释，逐步说明三组对照、指标含义、达标原因和最终 PID 如何使用。
-- [`pid.json`](result/pid.json)、[`summary.json`](result/summary.json) 和 CSV/SVG：最终参数、完整记录及可进一步分析的数据和图形。
+以下命令适用于 Windows PowerShell，需要 Python 3.10 或以上。每次运行命令都在项目根目录，即能看到 `pid_project.py` 和 `project.json` 的目录。
 
-建议先阅读结果解释，再下载或克隆仓库，用浏览器打开 `result/result.html`。GitHub 文件页面展示 HTML 源码，不直接展示报告界面。
-
-该示例未启用 LLM、未连接设备，选出的合格方案是 Z-N PI；这些是配置模型上的仿真结果。`result/` 保存参考快照，自己运行后的新结果位于 `results/project/<时间戳>/`，每次单独保存，保留历史结果。
-
-该快照使用修改前的相对增幅护栏。新版默认 `auto` 区分离线公式与设备变更，默认任务可能选中 Z-N PID，结果与快照不同；请以每次报告记录的配置及护栏策略为准。详见[护栏修正说明](docs/GUARDRAILS.md)。
-
-安装为命令行工具，或生成自己的配置：
-
-```powershell
-python -m pip install -e .
-thermal-pid --init my_project.json
-thermal-pid --config my_project.json --validate
-thermal-pid --config my_project.json
-```
-
-要改变任务，编辑 `project.json` 的 `task`；换对象时编辑 `model` 或填写 `history.file`。每项已有中文注释和默认值，程序直接支持这些注释；省略字段使用默认值，未知字段会报错；文件路径相对于配置所在目录。
-
-完整说明：[配置怎么填](docs/CONFIGURATION.md) · [算法与结果怎么看](docs/METHODS.md) · [设备接入协议](docs/DEVICE_PROTOCOL.md)
-
-## 历史结果与多场景对比
-
-`output.directory` 现在是结果根目录。每次运行都会建立独立的时间戳子目录，即使快速连续运行也不会覆盖。运行开始时打印本次目录，完成时打印报告路径；原来直接保存在根目录中的历史文件继续保留。
-
-`controller.guardrail_policy` 默认 `auto`：test 模式初始公式参数先做有效数值和绝对范围检查，不再按默认 `1/0.01/0` 的倍数统一裁剪；LLM 每轮仍限制相对当前仿真参数的增幅。use 模式继续保留相对实际设备参数及最终写入的增幅检查。设置 `relative` 可复现旧策略。全部候选仍须完整任务仿真达标，报告记录本次实际护栏策略。
-
-[`examples/scenarios/`](examples/scenarios/README.md) 提供六份带完整中文注释的配置，覆盖不同温度目标、慢响应、大滞后及持续降温扰动。默认启用 LLM，使用根目录的私有 `config.json` 密钥。逐组运行并生成数据汇总：
+首次从 GitHub 下载：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/run_comparison_suite.py
+git clone https://github.com/Rowlinc/thermal-pid-workbench.git
+cd thermal-pid-workbench
 ```
 
-不调用 API 时追加 `--llm off`。汇总位于 `results/comparison_suite/<时间戳>/index.html`，包含各组报告链接；`comparison.md` 和 `comparison.csv` 提供数据与解释。每个场景的三组控制器使用相同任务及门槛，包含未达标结果。原辨识基线在当前统一框架中运行，不能等同于完整原项目独立对照；LLM 单次测试也不能证明所有场景均有优势。
-
-## 两种模式
-
-| 模式 | 行为 |
-|---|---|
-| `test` | 辨识、整定、可选 LLM、离线仿真、输出参数和报告，供使用者审阅和手动采用 |
-| `use` | 完成离线验证后，读取设备、条件写入合格参数、独立读回并有界监测 |
-
-使用模式支持模拟、TCP JSONL、串口 JSONL 和自定义适配器，需要显式开启 `device.write_enabled`。连续闭环控制仍由设备执行。项目已实现接入流程；随包测试覆盖软件、模拟设备和本机 TCP，**没有完成任何真实化工装置的投产验证**。现场设备的协议、单位、PID 形式及状态初始化仍须适配；DCS/PLC/SIS 等既有保护继续独立负责过程安全。
+如果已经下载ZIP并解压，直接进入自己的目录，不必再次克隆。例如：
 
 ```powershell
-python pid_project.py --config examples/use_simulated.json
+cd E:\Program-File-Data\MyProject\PIDjudge\outputs\thermal-pid-workbench
 ```
 
-这条命令操作内存中的模拟设备；写入/读回/监测记录在 `results/use_simulated/device_audit.json`。
+创建环境并安装基础项目：
 
-## 输出和对比
+```powershell
+python --version
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e . --index-url https://pypi.org/simple
+```
+
+`.venv` 是本项目独立的 Python 环境，避免依赖与其他项目混用；`-e .` 安装当前项目。基础算法使用标准库，推荐安装以统一运行环境。环境只创建一次；已经有 `.venv` 时复用它。本文直接使用环境中的 Python，**不用执行 Activate.ps1，也不用调整PowerShell执行策略**。
+
+需要LLM，再安装API客户端依赖：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[llm]" --index-url https://pypi.org/simple
+```
+
+需要串口接入，安装串口依赖；同时用LLM和串口时选择第二条：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[serial]" --index-url https://pypi.org/simple
+.\.venv\Scripts\python.exe -m pip install -e ".[llm,serial]" --index-url https://pypi.org/simple
+```
+
+安装依赖需要联网。LLM依赖是远程API客户端，**不是把大模型下载到本地**。关闭LLM后，内置模型的测试运行不需要连接模型API。
+
+macOS/Linux 使用相同配置与流程，安装命令为：
+
+```sh
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e .
+# 使用LLM时额外执行
+./.venv/bin/python -m pip install -e '.[llm]'
+```
+
+下文 Windows 命令中的 `.\.venv\Scripts\python.exe` 对应 Linux/macOS 的 `./.venv/bin/python`。
+
+## 3．情况一：测试模式，不使用LLM
+
+1. 完成基础安装。
+2. 打开根目录 `project.json`，修改现有字段：`mode` 为 `test`、`llm.enabled` 为 `false`、`device.adapter` 为 `disabled`、`device.write_enabled` 为 `false`，保存。
+3. 核对 `model` 对象、`task` 初温/目标、`actuator` 输出能力、`controller` 采样与参数形式、`evaluation` 达标要求。默认值可直接做30→100°C示例，但不是你的实际设备数据。
+4. 检查配置，再运行：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.json
+```
+
+`--validate` 只检查配置，不仿真、不连接设备、不验证API能否访问。
+
+运行开始打印本次结果目录，完成打印 `Report:`。默认位置为 `results/project/<时间戳>/`。打开该目录的 `report.html` 看曲线与指标，`pid.json` 看合格参数。没有达标方案时 `pid` 为 `null`，不要把诊断候选当成合格推荐。
+
+## 4．情况二：测试模式，使用LLM完整功能
+
+1. 完成基础安装及 `.[llm]` 安装。
+2. 在项目根目录创建或编辑 `config.json`。最小内容如下，替换占位文字：
+
+```json
+{
+  "LLM_API_KEY": "填入你的实际API密钥"
+}
+```
+
+`config.json` 是普通JSON，不加 `//` 注释。不要覆盖已有文件中的其他需要保留的字段，不要上传真实密钥。
+
+3. 打开根目录 `project.json`，修改其中**已有的**这些字段。下方只是需要核对的部分，不是让你把整份项目配置替换成这些内容：
+
+```json
+{
+  "mode": "test",
+  "llm": {
+    "enabled": true,
+    "provider": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-flash",
+    "credentials_file": "config.json"
+  },
+  "tuning": {
+    "rounds": 4,
+    "compare_original": true
+  },
+  "device": {
+    "adapter": "disabled",
+    "write_enabled": false
+  }
+}
+```
+
+`provider=openai` 指兼容OpenAI的API协议，可连接DeepSeek；不表示调用OpenAI模型。模型名必须由你的服务实际支持。`rounds=4` 是每组最多4轮建议，三组比较最多12轮，重试或传输回退可能增加请求数。
+
+4. 保存配置，执行：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.json
+```
+
+5. 打开控制台打印的**本次时间戳目录**里的报告。先看最终是否达标，再展开“LLM各轮”查看建议、实际应用参数、仿真和回滚记录。`summary.json` 中 `config.llm.enabled=true` 只证明开关打开；历史里有 `requested_pid`/`applied_pid` 才证明取得了可仿真的建议。`llm_unavailable` 等表示LLM没有成功提供建议。
+
+**有密钥不等于启用LLM，改配置不会自动更新旧报告。** 必须保存 `enabled=true` 并重新运行。LLM通过互联网API调用；“本地仿真”指对象和控制验证在本机，不表示LLM不联网。API不可用时程序可能保留原有最好结果，成功生成报告并不保证API调用成功。
+
+可选：当前PowerShell窗口设置 `$env:LLM_API_KEY = '你的实际API密钥'`，可以替代密钥文件。环境变量优先于文件；若想改为使用文件，先执行 `Remove-Item Env:LLM_API_KEY -ErrorAction SilentlyContinue`。不要把密钥写进任务配置或截图公开。
+
+主流程始终用 `project.json`。仓库中也有 `examples/deepseek.json`，它是另一份已开启LLM的任务配置，默认每组2轮，读取 `../config.json`，输出到 `results/llm_project/<时间戳>/`；不需要额外创建名为deepseek.json的密钥文件。只有明确想用这份示例时才运行：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config examples/deepseek.json
+```
+
+## 5．情况三：使用模式，不使用LLM
+
+### 5.1 先用模拟设备走完整读写流程
+
+完成基础安装后，可直接执行仓库自带配置：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config examples/use_simulated.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config examples/use_simulated.json
+```
+
+它固定为 `use`、模拟适配器、关闭LLM，仅操作内存中的模拟设备。查看 `results/use_simulated/<时间戳>/report.html` 与 `device_audit.json`。审计包含读状态、写入、读回和监测记录；内存模拟时间加速推进。
+
+### 5.2 用本机TCP演示网关验证通信
+
+开启两个PowerShell窗口，**两边都进入项目根目录**。
+
+终端一：启动模拟网关，保持运行：
+
+```powershell
+.\.venv\Scripts\python.exe -m thermal_pid.gateway_demo --config examples/use_tcp_local.json --port 9100
+```
+
+终端二：检查配置并运行客户端：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config examples/use_tcp_local.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config examples/use_tcp_local.json
+```
+
+结果位于 `results/use_tcp_local/<时间戳>/`。演示网关只监听127.0.0.1，操作模拟对象，不控制真实设备。客户端完成后在终端一按Ctrl+C停止网关。
+
+### 5.3 接入自己的真实设备
+
+先根据[设备协议](docs/DEVICE_PROTOCOL.md)准备能报告真实状态、条件写入并独立读回的网关或自定义适配器。本项目没有预设任意厂商PLC寄存器；填写IP地址不等于完成协议适配。
+
+从根目录配置复制自己的使用配置，保留测试配置：
+
+```powershell
+Copy-Item -LiteralPath project.json -Destination project.use.local.json
+```
+
+若文件已经存在，直接编辑已有文件，不要重复复制覆盖自己的设备设置。修改现有字段：
+
+```json
+{
+  "mode": "use",
+  "llm": {"enabled": false},
+  "device": {
+    "adapter": "tcp",
+    "host": "填写已适配网关的地址",
+    "port": 9100,
+    "write_enabled": true,
+    "object_id": "temperature-loop-1"
+  }
+}
+```
+
+同时填写实际模型或历史CSV、温度任务、输出单位/上下限/速率、采样周期、PID形式、微分滤波、初始化、评价门槛及设备监测条件。设备回传的对象标识和控制语义必须一致。
+
+- TCP：配置 `host`、`port`、`timeout_s`，网关实现JSONL协议。
+- 串口：安装 `.[serial]`，设置 `adapter=serial`、`serial_port`（例如COM3）、`baud`；串口端同样需要JSONL协议。
+- 自定义：设置 `adapter=custom`、`custom_factory=模块:函数`，并安装该实现实际需要的厂商SDK/协议依赖。
+
+先在同一模型和任务下只做离线验证；`--mode test`会覆盖配置中的use模式，**不会连接设备**：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json --mode test --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json --mode test
+```
+
+核对报告并完成设备接口适配后，再检查使用配置、执行设备流程：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json
+```
+
+最后一条命令会读取真实设备，并在条件满足时**写入PID和目标温度**。按设备当前参数重新限制增幅后，使用模式的结果可能与test不同；必须同时看报告与 `device_audit.json`。接口不匹配、工况变化过大或没有合格参数会拒绝写入。监测只持续配置的时间，结束后程序退出。
+
+## 6．情况四：使用模式，使用LLM
+
+1. 完成 `.[llm]` 安装；串口加LLM则安装 `.[llm,serial]`。
+2. 按第4节将密钥放到根目录 `config.json` 或环境变量。
+3. 完成第5节自己的设备配置，在根目录 `project.use.local.json` 中设置 `llm.enabled=true`，服务地址、模型和供应商按第4节填写，`credentials_file=config.json`。
+4. 先执行不会连接设备的测试流程：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json --mode test --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json --mode test
+```
+
+5. 查看本次报告及LLM历史，完成对象与接口核对后运行使用流程：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.use.local.json
+```
+
+LLM建议依然先经过确定性护栏和完整仿真，再检查设备参数总增幅及写入条件；它不直接发设备命令。网络调用会延长离线规划时间，写入前会重新核验设备状态。
+
+若只想用模拟设备验证“use＋LLM”，可在根目录创建专用配置：
+
+```powershell
+Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
+```
+
+编辑这份配置：`mode=use`、`llm.enabled=true`、`credentials_file=config.json`、`device.adapter=simulated`、`device.write_enabled=true`、`device.max_planning_output_change=20`。其余使用第4节服务设置；最后执行：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config project.use-sim-llm.local.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config project.use-sim-llm.local.json
+```
+
+该配置接入的是模拟设备，不能代表现场投产验证。
+
+## 7．输入自己的模型、任务和历史数据
+
+| 内容 | 配置位置 | 应填写什么 |
+|---|---|---|
+| 对象 | `model` | 已知FOPDT的K/τ/θ，或CSV辨识，或离线模型探测 |
+| 任务 | `task` | 初始温度、目标温度、初始输出 |
+| 执行器 | `actuator` | 输出单位、上下限、每秒最大变化量 |
+| 控制器 | `controller` | 采样周期、参数形式/时间单位、滤波、初始化和护栏 |
+| 合格要求 | `evaluation` | 允许超温、超调、末段误差及调节时间 |
+| 运行时间/扰动 | `simulation` | 仿真时长、噪声、模型偏差和扰动 |
+
+已知模型设置 `model.source=parameters`；历史CSV设置 `model.source=csv`、`model.type=fopdt`、`history.file`及列名/时间单位。历史数据需要单次输入阶跃、阶跃前基线和基本稳定末段，不是任意长期趋势或只有温度的一列。`probe`只探测本地模型，不对现场做阶跃。
+
+可选示例均由仓库提供，先验证再运行：
+
+```powershell
+.\.venv\Scripts\python.exe pid_project.py --config examples/history.json --validate
+.\.venv\Scripts\python.exe pid_project.py --config examples/history.json
+.\.venv\Scripts\python.exe pid_project.py --config examples/heating.json
+.\.venv\Scripts\python.exe pid_project.py --config examples/cooling.json
+.\.venv\Scripts\python.exe pid_project.py --config examples/custom_model.json
+```
+
+默认这些模型示例关闭LLM，不连接设备；CSV示例数据是合成的。自定义模型使用仓库中的 `examples/custom_model.py`，实际扩展工厂需可导入且每次重置状态。
+
+所有文件路径相对于**所选配置所在目录**：根目录 `project.json` 的密钥路径是 `config.json`；`examples/` 中应为 `../config.json`；`examples/scenarios/` 中应为 `../../config.json`。把配置复制到其他目录时要同步调整路径。
+
+详细配置：[CONFIGURATION](docs/CONFIGURATION.md)；控制与算法：[METHODS](docs/METHODS.md)；设备协议：[DEVICE_PROTOCOL](docs/DEVICE_PROTOCOL.md)。
+
+## 8．六场景批量测试：不用LLM与使用LLM
+
+[`examples/scenarios/`](examples/scenarios/README.md) 提供六份完整注释配置：30°C升到60/80/100/110°C、慢响应与大滞后、持续冷却扰动。它们固定为test模式，配置里默认开启LLM。
+
+不使用LLM：完成基础安装后执行，`--llm off`只覆盖本次运行，不修改文件：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_comparison_suite.py --llm off
+```
+
+使用LLM：完成LLM安装、设置根目录密钥及确认各场景服务设置，再执行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_comparison_suite.py --llm on
+```
+
+`--llm` 是批量脚本选项，**不是 `pid_project.py` 的选项**。六场景三组各最多4轮，最多72轮建议，实际可能提前结束；重试可能增加请求数。不传选项则按每份配置的开关执行。
+
+逐场景报告在 `results/scenarios/<场景名>/<时间戳>/`；批次汇总在 `results/comparison_suite/<时间戳>/`，打开 `index.html`，同时提供 `comparison.md`、`comparison.csv`、`suite.json`。包含未达标结果与LLM实际建议记录，不保证新流程每次获胜。
+
+## 9．结果怎么找、怎么看
+
+`output.directory` 是结果根目录，每次运行创建独立时间戳子目录，不覆盖旧报告。**以本次控制台打印的路径为准，不是固定打开旧的 `results/project/report.html`。**
 
 | 文件 | 内容 |
 |---|---|
-| `report.html` | 三组响应曲线、指标、候选参数和达标状态 |
-| `pid.json` | 合格 PID、形式及单位，无合格结果时为 null |
-| `summary.json` | 实际配置、时间戳/哈希、辨识、原始/应用 PID、护栏与回滚记录 |
-| `metrics.csv`、各组 CSV | 指标和响应数据 |
-| `device_audit.json` | 使用模式的设备写入与读回审计 |
+| `report.html` | 温度/输出曲线、三组指标、公式与护栏后参数、达标原因、LLM历史 |
+| `pid.json` | 合格PID及形式/单位；没有合格结果则pid为null |
+| `summary.json` | 本次实际配置、时间/哈希、辨识、候选、各轮建议、回滚与护栏策略 |
+| `metrics.csv`、各组CSV | 指标及响应数据，便于自己绘图 |
+| `device_audit.json` | use模式读状态、条件写入、读回和监测记录 |
 
-`original_zn` 是原辨识函数 + Z-N PID，`corrected_zn` 是修正辨识/已知模型 + Z-N PID，`selected` 是在 Z-N PID/PI 与 SIMC PI 中按评价要求选择。启用 LLM 后三组分别继续调优。该对照隔离辨识和初始化的改动，不包含完整原版工程的其他实现差异。
+先看是否满足全部门槛，再比较IAE、末段MAE、调节时间和输出TV。TV是控制输出累计变化，不是能耗。
 
-先看全部条件是否达标，再比较 IAE（累计温差）、末段温差、调节时间和输出变化总量。自动选择不保证每次选择 SIMC；单次仿真的优胜也不能代表所有化工场景。
+- `original_zn`：原辨识函数＋Z-N PID，在当前统一框架中运行。
+- `corrected_zn`：修正辨识/已知模型＋Z-N PID。
+- `selected`：从Z-N PID、Z-N PI、SIMC PI中按评价要求选起点。
 
-## 数据、模型和 LLM
+启用LLM后三组各自继续调优；若选优组选中Z-N PID且最终参数一致，它与修正组可以完全相同。该对照不是完整上游项目独立执行，不能从单次模型仿真推导所有化工对象上的优势。
+
+`controller.guardrail_policy=auto` 默认在test初始公式和最终建议阶段检查有效数值/绝对范围，LLM每轮仍限制相对当前仿真参数的增幅；use保留相对实际设备参数及最终总增幅检查。`relative`可复现旧策略。护栏后的参数仍须仿真达标；配置的参数范围不等于现场安全边界。见[护栏说明](docs/GUARDRAILS.md)。
+
+## 10．常见问题
+
+| 现象 | 检查方法 |
+|---|---|
+| `.venv\Scripts\python.exe`不存在 | 是否进入正确项目目录、是否完成创建环境 |
+| 缺少openai/requests等模块 | 使用同一 `.venv` 的Python安装 `.[llm]`，避免装到另一个环境 |
+| 有密钥但没有LLM历史 | 是否运行正确的配置、保存enabled=true、是不是打开旧报告 |
+| `--validate`成功但API失败 | 配置校验不请求API；检查服务地址、模型、密钥、网络，以及LLM历史事件 |
+| 修改config.json的模型名没生效 | 本入口从project.json读取服务/模型，只从config.json读取密钥 |
+| `pid.json`里pid=null | 没有参数满足全部门槛，查看报告中的具体失败原因 |
+| 串口/TCP连接失败 | 接口是否启动、地址/端口或串口是否正确、是否安装依赖并实现协议 |
+| use与test结果不同 | use读实际设备状态并以实际参数限制增幅，不是直接写入test推荐 |
+| 程序安静一段时间 | LLM请求与重试期间可能没有逐轮输出；整次运行可能包含多组多轮请求 |
+
+## 11．示例结果、开发与归属
+
+仓库的 [`result/`](result/) 是保留的30→100°C参考快照：[`result.html`](result/result.html)为曲线报告，[`result-toread.md`](result/result-toread.md)为中文解读。下载后用浏览器打开HTML，GitHub网页展示的是源码。快照关闭LLM，使用旧relative护栏并选中Z-N PI；新版auto可能选中Z-N PID，请按报告配置区分，不能混用两批结论。
+
+`results/` 是自己的运行历史，不提交Git；`config.json`、`.env`、`*.local.json`同样被忽略。`project.json`等公开模板可以提交，但不要包含真实密钥或生产数据。
+
+项目适合局部稳定的单输入单输出温控对象。支持降温负增益、输出约束、并联/理想式参数及秒/分钟转换；强耦合、积分、不稳定或强非线性对象需要扩展。IMC仅作为SIMC理论背景，没有独立算法实现。
+
+本README的配置与模式指 `pid_project.py`。遗留 `simulator.py`、`tuning_pipeline.py`、MATLAB/硬件入口仍有原配置；上游内容见[原README快照](docs/UPSTREAM_README.md)。
+
+开发者测试与打包：
 
 ```powershell
-python pid_project.py --config examples/history.json
-python pid_project.py --config examples/heating.json
-python pid_project.py --config examples/cooling.json
-python pid_project.py --config examples/custom_model.json
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,llm,serial,legacy]" --index-url https://pypi.org/simple
+.\.venv\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe -m build
 ```
 
-历史 CSV 独立保存，支持自定义列名和秒/毫秒，需要包含基线及稳定末段的单次输入阶跃。示例 CSV 是合成数据。自定义模型通过 `module:function` 工厂接入。
+测试不调用外部LLM或真实装置。也可使用安装后的命令 `thermal-pid`，但只有激活环境或使用 `.\.venv\Scripts\thermal-pid.exe` 时才保证运行本项目环境；新手建议继续使用本文完整Python路径。
 
-启用 LLM 时安装依赖，把 API key 放入 `LLM_API_KEY` 环境变量或本地 `config.json` 的 `LLM_API_KEY` 字段：
-
-```powershell
-python -m pip install -e ".[llm]"
-python pid_project.py --config examples/deepseek.json
-```
-
-供应商、模型、地址和轮数都在配置中。LLM 接收模型、评价条件和仿真摘要，仅负责建议；程序独立验证、保留最佳并回滚。密钥不写入公开配置，Git 与发布包排除本地凭据。
-
-## 范围、开发和归属
-
-重点是可由局部稳定单输入单输出模型描述的温控回路。支持输出单位/限幅/速率、采样时间、微分滤波、条件积分抗饱和、负增益降温、并联式/理想式 PID 与秒/分钟转换。强耦合、积分、不稳定或强非线性对象需要扩展模型及算法。IMC 仅作 SIMC 的理论背景，没有独立实现。
-
-算法见 `system_id.py`；配置、模型、评价、LLM 工作流与设备接口在 `thermal_pid/`。遗留 `simulator.py`、`tuning_pipeline.py`、MATLAB/硬件工具继续使用其原配置。**本 README 的统一配置和两个模式指 `pid_project.py` / `thermal-pid`。** [原 README 快照](docs/UPSTREAM_README.md)用于查看上游功能。
-
-```powershell
-python -m pip install -e ".[dev,llm,serial,legacy]"
-python -m pytest tests -q
-python -m build
-```
-
-GitHub Actions 配置包含 Windows/Linux、Python 3.10/3.12；远端是否通过以实际执行记录为准。测试不调用外部 LLM 或真实装置。
-
-保留 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和上游归属。参见 [CHANGELOG](CHANGELOG.md)、[CONTRIBUTING](CONTRIBUTING.md)。配置模板可以公开；生产数据、凭据、日志和生成结果默认不进入 Git。
+保留 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和上游归属。参见 [CHANGELOG](CHANGELOG.md)、[CONTRIBUTING](CONTRIBUTING.md)。

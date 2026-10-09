@@ -10,5 +10,8 @@
   },
   "output": {
     "directory": "../results/use_tcp_local"
+  },
+  "llm": {
+    "credentials_file": "../config.json"
   }
 }

@@ -23,5 +23,8 @@
   },
   "output": {
     "directory": "../results/cooling"
+  },
+  "llm": {
+    "credentials_file": "../config.json"
   }
 }

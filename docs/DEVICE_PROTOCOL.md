@@ -7,19 +7,21 @@
 
 ## 先运行可复现的接口联调
 
+先按[README安装流程](../README.md)创建`.venv`并安装基础项目。以下命令均从项目根目录运行；串口额外安装`.[serial]`，LLM额外安装`.[llm]`。密钥放在根目录`config.json`，任务配置负责LLM开关、地址和模型。
+
 ```powershell
-python pid_project.py --config examples/use_simulated.json
+.\.venv\Scripts\python.exe pid_project.py --config examples/use_simulated.json
 ```
 
-查看 `results/use_simulated/device_audit.json`，其中应有初始状态、写入回执、读回确认、观察记录和完成事件。这个适配器完全在内存中运行，模拟时间加速推进。
+查看 `results/use_simulated/<时间戳>/device_audit.json`（以控制台打印的本次目录为准），其中应有初始状态、写入回执、读回确认、观察记录和完成事件。这个适配器完全在内存中运行，模拟时间加速推进。
 
 要测试真正的 TCP 序列化/收发，在两个终端依次运行：
 
 ```powershell
 # 终端一：模拟设备网关，只监听本机
-python -m thermal_pid.gateway_demo --config project.json --port 9100
+.\.venv\Scripts\python.exe -m thermal_pid.gateway_demo --config examples/use_tcp_local.json --port 9100
 # 终端二：客户端使用 TCP 连接
-python pid_project.py --config examples/use_tcp_local.json
+.\.venv\Scripts\python.exe pid_project.py --config examples/use_tcp_local.json
 ```
 
 演示网关不是驱动程序或生产服务。它只控制内部模拟对象，关闭终端即可结束。没有真实设备寄存器地址被预设在项目中。

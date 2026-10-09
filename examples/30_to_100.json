@@ -6,5 +6,8 @@
   },
   "output": {
     "directory": "../results/30_to_100"
+  },
+  "llm": {
+    "credentials_file": "../config.json"
   }
 }

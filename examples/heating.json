@@ -24,5 +24,8 @@
   },
   "output": {
     "directory": "../results/heating_project"
+  },
+  "llm": {
+    "credentials_file": "../config.json"
   }
 }

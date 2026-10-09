@@ -14,6 +14,9 @@ from thermal_pid.config_comments import COMMENTS, render_commented_json
 
 
 def save(path, value):
+    if Path(path).parent == Path("examples") and Path(path).suffix == ".json":
+        value = deepcopy(value)
+        value.setdefault("llm", {}).setdefault("credentials_file", "../config.json")
     path = ROOT / path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

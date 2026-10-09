@@ -9,5 +9,8 @@
   },
   "output": {
     "directory": "../results/history"
+  },
+  "llm": {
+    "credentials_file": "../config.json"
   }
 }

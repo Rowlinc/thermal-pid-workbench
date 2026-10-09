@@ -9,5 +9,8 @@
   },
   "output": {
     "directory": "../results/use_simulated"
+  },
+  "llm": {
+    "credentials_file": "../config.json"
   }
 }
