@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 2026-10-09
+
+- Separate offline analytical gain validation from device-relative increase checks using `controller.guardrail_policy`; preserve LLM incremental checks and the existing use-mode final jump constraint, with `relative` available for prior-result reproduction.
+- Save each unified project run in a unique timestamp folder; preserve previous reports and handle timestamp collisions.
+- Add six annotated temperature-task, lag/delay and disturbance configurations, plus a repeatable comparison runner.
+- Summarize every completed arm, including disqualified results, LLM activity, parameter changes and saturation fractions; distinguish the original-identification baseline from an independent full upstream execution.
+
 ## 0.3.0 — 2026-10-08
 
 - Add `project.json` and `thermal-pid` / `pid_project.py` as the unified thermal entry point.

@@ -51,6 +51,7 @@ DEFAULTS = {
         "derivative_on": "measurement",
         "derivative_filter_s": 0.5,
         "initialization": "zero",
+        "guardrail_policy": "auto",
         "initial_pid": {"p": 1.0, "i": 0.01, "d": 0.0},
         "limits": {
             "p": {"min": 0.0, "max": 5000.0, "max_increase_ratio": 3.0},
@@ -188,6 +189,7 @@ def validate(cfg):
     enum("controller.parameter_time_unit", ("s", "min"))
     enum("controller.derivative_on", ("measurement", "error"))
     enum("controller.initialization", ("zero", "tracking"))
+    enum("controller.guardrail_policy", ("auto", "relative"))
     enum("llm.deepseek_thinking", ("disabled", "enabled", "provider_default"))
     enum("device.adapter", ("disabled", "simulated", "tcp", "serial", "custom"))
     for path in (

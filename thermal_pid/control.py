@@ -7,13 +7,25 @@ from .models import Plant
 from .config import ConfigError
 
 
-def guard(cfg, current, candidate):
+def guard_policy(cfg, stage="llm"):
+    """Offline initialization has no physical PID change to rate-limit."""
+    if stage not in ("initial", "llm", "delivery"):
+        raise ValueError("unknown guard stage")
+    if (cfg["mode"] == "test"
+            and cfg["controller"].get("guardrail_policy", "auto") == "auto"
+            and stage in ("initial", "delivery")):
+        return "absolute"
+    return "relative"
+
+
+def guard(cfg, current, candidate, *, stage="llm"):
     values = {key: None if isinstance(value, bool) else value for key, value in candidate.items()}
     return apply_pid_guardrails(
         current,
         values,
         cfg["controller"]["limits"],
         global_max_increase_ratio=cfg["controller"]["global_max_increase_ratio"],
+        limit_increase=guard_policy(cfg, stage) == "relative",
     )
 
 

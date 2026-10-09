@@ -14,7 +14,7 @@
 python pid_project.py
 ```
 
-打开 `results/project/report.html` 看温度曲线和指标；打开 `results/project/pid.json` 看最终建议参数。没有达标参数时参数为 `null`，报告会列出原因。
+每次运行会创建 `results/project/<时间戳>/`，控制台会打印本次目录和报告地址。打开其中的 `report.html` 看温度曲线和指标；打开 `pid.json` 看最终建议参数。没有达标参数时参数为 `null`，报告会列出原因。
 
 ## 示例结果参考
 
@@ -26,7 +26,9 @@ python pid_project.py
 
 建议先阅读结果解释，再下载或克隆仓库，用浏览器打开 `result/result.html`。GitHub 文件页面展示 HTML 源码，不直接展示报告界面。
 
-该示例未启用 LLM、未连接设备，选出的合格方案是 Z-N PI；这些是配置模型上的仿真结果。`result/` 保存参考快照，自己运行后的新结果仍位于 `results/project/`。
+该示例未启用 LLM、未连接设备，选出的合格方案是 Z-N PI；这些是配置模型上的仿真结果。`result/` 保存参考快照，自己运行后的新结果位于 `results/project/<时间戳>/`，每次单独保存，保留历史结果。
+
+该快照使用修改前的相对增幅护栏。新版默认 `auto` 区分离线公式与设备变更，默认任务可能选中 Z-N PID，结果与快照不同；请以每次报告记录的配置及护栏策略为准。详见[护栏修正说明](docs/GUARDRAILS.md)。
 
 安装为命令行工具，或生成自己的配置：
 
@@ -40,6 +42,20 @@ thermal-pid --config my_project.json
 要改变任务，编辑 `project.json` 的 `task`；换对象时编辑 `model` 或填写 `history.file`。每项已有中文注释和默认值，程序直接支持这些注释；省略字段使用默认值，未知字段会报错；文件路径相对于配置所在目录。
 
 完整说明：[配置怎么填](docs/CONFIGURATION.md) · [算法与结果怎么看](docs/METHODS.md) · [设备接入协议](docs/DEVICE_PROTOCOL.md)
+
+## 历史结果与多场景对比
+
+`output.directory` 现在是结果根目录。每次运行都会建立独立的时间戳子目录，即使快速连续运行也不会覆盖。运行开始时打印本次目录，完成时打印报告路径；原来直接保存在根目录中的历史文件继续保留。
+
+`controller.guardrail_policy` 默认 `auto`：test 模式初始公式参数先做有效数值和绝对范围检查，不再按默认 `1/0.01/0` 的倍数统一裁剪；LLM 每轮仍限制相对当前仿真参数的增幅。use 模式继续保留相对实际设备参数及最终写入的增幅检查。设置 `relative` 可复现旧策略。全部候选仍须完整任务仿真达标，报告记录本次实际护栏策略。
+
+[`examples/scenarios/`](examples/scenarios/README.md) 提供六份带完整中文注释的配置，覆盖不同温度目标、慢响应、大滞后及持续降温扰动。默认启用 LLM，使用根目录的私有 `config.json` 密钥。逐组运行并生成数据汇总：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_comparison_suite.py
+```
+
+不调用 API 时追加 `--llm off`。汇总位于 `results/comparison_suite/<时间戳>/index.html`，包含各组报告链接；`comparison.md` 和 `comparison.csv` 提供数据与解释。每个场景的三组控制器使用相同任务及门槛，包含未达标结果。原辨识基线在当前统一框架中运行，不能等同于完整原项目独立对照；LLM 单次测试也不能证明所有场景均有优势。
 
 ## 两种模式
 

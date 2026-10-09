@@ -129,6 +129,13 @@ def write_report(result, directory, save_csv=True):
     )
     doc = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Thermal PID Workbench</title><style>body{max-width:1100px;margin:35px auto;padding:0 20px;font:16px/1.6 system-ui;color:#233}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}svg{width:100%;background:#f8faf9}code,pre{white-space:pre-wrap;overflow-wrap:anywhere}.legend{padding:10px}</style><h1>温控 PID 对比报告</h1>'
     doc += f'<p>任务：{result["config"]["task"]["initial_temperature_c"]:g} → {target:g} °C。模式：{html.escape(result["config"]["mode"])}。{status}。</p><p>original_zn：原辨识算法 + Z-N；corrected_zn：修正辨识 + Z-N；selected：修正辨识后比较 Z-N / SIMC。启用 LLM 后，各组分别从自己的初始参数继续调优。所有候选均先经过 pid_safety 护栏。</p>'
+    context = result.get("guardrail_context")
+    if context:
+        labels = {"absolute": "数值与绝对范围检查", "relative": "数值、绝对范围与相对增幅检查"}
+        doc += '<p><strong>本次护栏：</strong>' + '；'.join(
+            html.escape(label + '：' + labels[context[key]])
+            for label, key in (("初始公式候选", "initial_candidates"), ("LLM每轮", "llm_rounds"), ("最终参数", "final_delivery"))
+        ) + '。参数检查通过后仍须完整任务仿真达标；test 模式不连接设备。</p>'
     doc += (
         "<p>生成时间："
         + html.escape(result["created_at_utc"])

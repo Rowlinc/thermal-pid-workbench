@@ -67,6 +67,7 @@ def main():
         "controller.parameter_time_unit": ["s", "min"],
         "controller.derivative_on": ["measurement", "error"],
         "controller.initialization": ["zero", "tracking"],
+        "controller.guardrail_policy": ["auto", "relative"],
         "device.adapter": ["disabled", "simulated", "tcp", "serial", "custom"],
     }
     for path, values in enums.items():

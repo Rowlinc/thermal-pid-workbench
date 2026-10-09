@@ -5,7 +5,7 @@
   // 配置格式版本。保持 1，通常不需要修改。 默认值：1。
   "schema_version": 1,
   // 本次实验的名称，用来区分不同任务，可改成自己方便辨认的名字。 默认值："temperature_30_to_100"。
-  "name": "temperature_30_to_100",
+  "name": "03_heat_30_to_100",
   // 运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。 默认值："test"。
   "mode": "test",
   // 对象模型：描述“改变加热功率或阀位后，温度如何响应”，不是本次任务的目标。
@@ -209,15 +209,15 @@
   // 可选的大模型建议。默认关闭，传统 Z-N/SIMC 整定仍可运行。启用后会将模型和仿真摘要发到指定 API。
   "llm": {
     // 是否使用 LLM：false=纯传统算法比较；true=传统算法选起点后继续请求 LLM 建议，仍需程序验证。 默认值：false。
-    "enabled": false,
+    "enabled": true,
     // API 协议类型：openai=兼容 OpenAI 协议（也可连接 DeepSeek，并不表示必须用 OpenAI 模型）；anthropic=Anthropic 协议；auto=按地址判断。 默认值："openai"。
     "provider": "openai",
     // API 服务地址，例如 DeepSeek 为 https://api.deepseek.com/v1；不是网页聊天地址，需与 provider 匹配。 默认值："https://api.deepseek.com/v1"。
-    "base_url": "https://api.deepseek.com/v1",
+    "base_url": "https://api.deepseek.com",
     // API 提供的模型名称，例如 deepseek-flash；须是自己的服务可调用的模型。 默认值："deepseek-flash"。
     "model": "deepseek-flash",
     // 本地密钥 JSON 文件路径，相对于本配置目录，读取其中 LLM_API_KEY；不要将真实密钥写到本文件或发布到 GitHub。 默认值："config.json"。
-    "credentials_file": "config.json",
+    "credentials_file": "../../config.json",
     // 保存 API key 的环境变量名称；程序优先读该变量，再读 credentials_file。这是变量名，不是密钥本身。 默认值："LLM_API_KEY"。
     "api_key_env": "LLM_API_KEY",
     // API 网络超时设置，单位秒；网络失败后可能重试或切换 HTTP 传输，不等于整次调优的总耗时上限。 默认值：60.0。
@@ -271,7 +271,7 @@
   // 结果保存设置。
   "output": {
     // 结果根目录，相对于本配置文件目录；每次运行自动建立独立时间戳子目录，在其中保存 report.html、pid.json、summary.json 等，不覆盖历史结果。 默认值："results/project"。
-    "directory": "results/project",
+    "directory": "../../results/scenarios/03_heat_30_to_100",
     // true=另存指标和响应 CSV 供绘图分析；false=不生成这些 CSV，仍保存报告和 JSON。 默认值：true。
     "save_csv": true
   },

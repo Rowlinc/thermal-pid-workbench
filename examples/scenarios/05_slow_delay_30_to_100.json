@@ -5,7 +5,7 @@
   // 配置格式版本。保持 1，通常不需要修改。 默认值：1。
   "schema_version": 1,
   // 本次实验的名称，用来区分不同任务，可改成自己方便辨认的名字。 默认值："temperature_30_to_100"。
-  "name": "temperature_30_to_100",
+  "name": "05_slow_delay_30_to_100",
   // 运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。 默认值："test"。
   "mode": "test",
   // 对象模型：描述“改变加热功率或阀位后，温度如何响应”，不是本次任务的目标。
@@ -17,9 +17,9 @@
     // 过程增益，单位 °C/输出单位。例如输出用 %，K=1 表示输出增加 1 个百分点，稳态温度约增加 1°C；降温对象可为负，不能为 0。probe 时也须填对方向。 默认值：1.0。
     "K": 1.0,
     // 时间常数 τ，单位秒，必须大于 0：响应经过延迟后，再过 τ 秒，大约完成最终温度变化的 63.2%。参数来源为 parameters 时用于整定；CSV 时由数据覆盖。 默认值：120.0。
-    "tau_s": 120.0,
+    "tau_s": 240.0,
     // 纯延迟 θ，单位秒，不能为负：改变输出后，等待多久才开始影响温度。Z-N 需要它大于 0；SIMC 可以为 0。 默认值：10.0。
-    "theta_s": 10.0,
+    "theta_s": 40.0,
     // 模型工作点温度，单位 °C，与 operating_output 对应的稳定温度；不同于任务初始温度。默认工作点为输出 0 时 20°C。 默认值：20.0。
     "operating_temperature_c": 20.0,
     // 模型工作点输出，单位同 actuator.unit；FOPDT 稳态温度=工作点温度+K×(输出−工作点输出)。必须在输出范围内。 默认值：0.0。
@@ -164,7 +164,7 @@
     // 判断稳定的温差带，单位 °C。例如目标 100、此项 1，则稳定区间为 99–101°C。 默认值：1.0。
     "settling_band_c": 1.0,
     // 允许的最晚调节时间，单位秒：进入温差带后须持续保持到结束；null=不限制时间上限，但仍要求稳定。 默认值：600.0。
-    "max_settling_time_s": 600.0,
+    "max_settling_time_s": 1200.0,
     // 进入温差带后至少还要观察多久，单位秒，避免最后一刻碰到目标就被判稳定。 默认值：20.0。
     "min_settled_observation_s": 20.0,
     // 末段评价使用最后多少比例的数据，范围大于 0 且不超过 1。例如 0.1=最后 10%。 默认值：0.1。
@@ -177,7 +177,7 @@
   // 离线验证条件：时长、测量噪声、模型偏差和扰动。各组使用相同条件。
   "simulation": {
     // 每次完整闭环仿真时长，单位秒；须足够长观察稳定结果，并为 sample_time_s 的整数倍。 默认值：600.0。
-    "duration_s": 600.0,
+    "duration_s": 1200.0,
     // 随机种子，整数。同一配置和种子可复现同一组测量噪声，方便公平比较；无噪声时通常不用改。 默认值：0。
     "seed": 0,
     // 测温噪声的标准差，单位 °C。0=无噪声；例如 0.1 模拟有小幅测量噪声。噪声进入控制器，不直接改变真实温度。 默认值：0.0。
@@ -209,15 +209,15 @@
   // 可选的大模型建议。默认关闭，传统 Z-N/SIMC 整定仍可运行。启用后会将模型和仿真摘要发到指定 API。
   "llm": {
     // 是否使用 LLM：false=纯传统算法比较；true=传统算法选起点后继续请求 LLM 建议，仍需程序验证。 默认值：false。
-    "enabled": false,
+    "enabled": true,
     // API 协议类型：openai=兼容 OpenAI 协议（也可连接 DeepSeek，并不表示必须用 OpenAI 模型）；anthropic=Anthropic 协议；auto=按地址判断。 默认值："openai"。
     "provider": "openai",
     // API 服务地址，例如 DeepSeek 为 https://api.deepseek.com/v1；不是网页聊天地址，需与 provider 匹配。 默认值："https://api.deepseek.com/v1"。
-    "base_url": "https://api.deepseek.com/v1",
+    "base_url": "https://api.deepseek.com",
     // API 提供的模型名称，例如 deepseek-flash；须是自己的服务可调用的模型。 默认值："deepseek-flash"。
     "model": "deepseek-flash",
     // 本地密钥 JSON 文件路径，相对于本配置目录，读取其中 LLM_API_KEY；不要将真实密钥写到本文件或发布到 GitHub。 默认值："config.json"。
-    "credentials_file": "config.json",
+    "credentials_file": "../../config.json",
     // 保存 API key 的环境变量名称；程序优先读该变量，再读 credentials_file。这是变量名，不是密钥本身。 默认值："LLM_API_KEY"。
     "api_key_env": "LLM_API_KEY",
     // API 网络超时设置，单位秒；网络失败后可能重试或切换 HTTP 传输，不等于整次调优的总耗时上限。 默认值：60.0。
@@ -271,7 +271,7 @@
   // 结果保存设置。
   "output": {
     // 结果根目录，相对于本配置文件目录；每次运行自动建立独立时间戳子目录，在其中保存 report.html、pid.json、summary.json 等，不覆盖历史结果。 默认值："results/project"。
-    "directory": "results/project",
+    "directory": "../../results/scenarios/05_slow_delay_30_to_100",
     // true=另存指标和响应 CSV 供绘图分析；false=不生成这些 CSV，仍保存报告和 JSON。 默认值：true。
     "save_csv": true
   },

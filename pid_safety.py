@@ -191,8 +191,9 @@ def apply_pid_guardrails(
     limits       : Dict[str, Dict[str, float]] | None = None,
     *,
     global_max_increase_ratio: float | None = None,
+    limit_increase: bool = True,
 ) -> Tuple[Dict[str, float], List[str]]:
-    """将候选 PID 参数裁剪到安全范围内。"""
+    """Check numeric/bound constraints; optionally also cap relative increases."""
     from core.config import CONFIG
     
     limits   = limits or DEFAULT_PID_LIMITS
@@ -223,7 +224,7 @@ def apply_pid_guardrails(
         if global_ratio_limit > 1.0:
             max_increase_ratio = min(max_increase_ratio, global_ratio_limit)
             
-        if current_value > 0:
+        if limit_increase and current_value > 0:
             max_step_value = min(cfg["max"], current_value * max_increase_ratio)
             if bounded_value > max_step_value:
                 notes.append(

@@ -2,6 +2,7 @@
 
 import argparse
 from copy import deepcopy
+from datetime import datetime
 import json
 from pathlib import Path
 import sys
@@ -10,12 +11,28 @@ from thermal_pid.workflow import plan
 from thermal_pid.report import write_report
 
 
+def create_run_directory(root):
+    """Reserve a distinct folder, even when runs share the same clock timestamp."""
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f%z")
+    index = 0
+    while True:
+        directory = root / (stamp if index == 0 else f"{stamp}_{index}")
+        try:
+            directory.mkdir(exist_ok=False)
+            return directory
+        except FileExistsError:
+            index += 1
+
+
 def run(cfg, base):
     validate(cfg)
     device = None
     audit = []
     result = None
-    directory = (Path(base) / cfg["output"]["directory"]).resolve()
+    directory = create_run_directory((Path(base) / cfg["output"]["directory"]).resolve())
+    print(f"Run directory: {directory}", flush=True)
     identified = None
     try:
         if cfg["mode"] == "use":

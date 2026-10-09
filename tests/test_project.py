@@ -13,7 +13,7 @@ from thermal_pid.control import export_pid, import_pid, simulate, Controller
 from thermal_pid.devices import DeviceError, Gateway, SimulatedDevice, deploy, validate_state
 from thermal_pid.models import identify, FOPDTModel
 from thermal_pid.workflow import plan
-from pid_project import run
+from pid_project import run, create_run_directory
 
 
 def config():
@@ -85,6 +85,27 @@ def test_full_task_default_and_output_slew(tmp_path):
         outputs = [r["output"] for r in candidate["samples"]]
         assert all(0 <= u <= 100 for u in outputs)
         assert max(abs(b - a) for a, b in zip(outputs, outputs[1:])) <= 10 + 1e-9
+
+
+def test_repeated_runs_preserve_previous_results(tmp_path):
+    cfg = config()
+    _, first = run(cfg, tmp_path)
+    original = (first / "summary.json").read_bytes()
+    cfg["task"]["target_temperature_c"] = 80
+    _, second = run(cfg, tmp_path)
+    assert first != second and first.parent == second.parent
+    assert (first / "summary.json").read_bytes() == original
+    assert json.loads((second / "summary.json").read_text(encoding="utf-8"))["config"]["task"]["target_temperature_c"] == 80
+
+
+def test_run_directory_clock_collision(tmp_path):
+    with patch("pid_project.datetime") as clock:
+        clock.now.return_value.astimezone.return_value.strftime.return_value = "fixed_timestamp"
+        first = create_run_directory(tmp_path)
+        (first / "marker").write_text("preserved")
+        second = create_run_directory(tmp_path)
+    assert second.name == "fixed_timestamp_1"
+    assert (first / "marker").read_text() == "preserved"
 
 
 def test_custom_scale_sample_time_and_cooling(tmp_path):
@@ -172,6 +193,7 @@ def test_final_llm_gain_checked_against_start(tmp_path):
             return {"p": 50, "i": 0.5, "d": 50}
 
     cfg = config()
+    cfg["controller"]["guardrail_policy"] = "relative"
     cfg["llm"]["enabled"] = True
     cfg["tuning"]["rounds"] = 2
     result = plan(cfg, tmp_path, Tuner())

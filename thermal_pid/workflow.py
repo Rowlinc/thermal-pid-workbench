@@ -11,7 +11,7 @@ from system_id import tuning_candidates
 from pid_safety import should_rollback_to_best
 from reference.original_system_id import system_identify as original_identify
 from .models import identify
-from .control import guard, simulate, rank
+from .control import guard, guard_policy, simulate, rank
 from .config import ConfigError, validate
 
 
@@ -93,6 +93,7 @@ def refine(cfg, initial, tuner, identified_model=None):
             control_domain="thermal",
             pid_limits=cfg["controller"]["limits"],
             pid_limits_are_runtime_enforced=True,
+            guardrail_policy=guard_policy(cfg, "llm"),
             instruction="Return positive seconds-based parallel gain magnitudes p/i/d. The process direction is applied separately. No actuator commands. Evaluate a complete setpoint step; do not infer safety from a short window.",
         )
         response = tuner.analyze(
@@ -140,6 +141,7 @@ def refine(cfg, initial, tuner, identified_model=None):
                 },
                 "applied_pid": applied,
                 "guard_notes": notes,
+                "guard_policy": guard_policy(cfg, "llm"),
                 "metrics": trial["metrics"],
                 "rollback": rollback,
                 "reason": str(response.get("analysis_summary", response.get("reason", ""))),
@@ -147,9 +149,10 @@ def refine(cfg, initial, tuner, identified_model=None):
         )
         if rank(trial) < rank(best):
             best = trial
-        delivery_pid, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], trial["pid"])
+        delivery_pid, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], trial["pid"], stage="delivery")
         delivery_trial = simulate(cfg, delivery_pid) if delivery_pid != trial["pid"] else trial
         history[-1]["delivery_guard_notes"] = delivery_notes
+        history[-1]["delivery_guard_policy"] = guard_policy(cfg, "delivery")
         history[-1]["delivery_metrics"] = delivery_trial["metrics"]
         if rank(delivery_trial) < rank(best_deliverable):
             best_deliverable = delivery_trial
@@ -186,9 +189,10 @@ def plan(cfg, base, tuner=None, identified=None):
             unavailable.append({"name": name, "reason": parameters["error"]})
             return None
         requested = {k: abs(parameters[v]) for k, v in zip(("p", "i", "d"), ("Kp", "Ki", "Kd"))}
-        applied, notes = guard(cfg, cfg["controller"]["initial_pid"], requested)
+        applied, notes = guard(cfg, cfg["controller"]["initial_pid"], requested, stage="initial")
         result = simulate(cfg, applied)
-        result.update(name=name, requested_pid=requested, guard_notes=notes, formula=parameters)
+        result.update(name=name, requested_pid=requested, guard_notes=notes, formula=parameters,
+                      guard_policy=guard_policy(cfg, "initial"))
         return result
 
     for name in cfg["algorithms"]["include"]:
@@ -219,9 +223,9 @@ def plan(cfg, base, tuner=None, identified=None):
     results = []
     for arm in arms:
         best, history = refine(cfg, arm, tuner, m) if cfg["llm"]["enabled"] else (arm, [])
-        # Offline steps must not compound into an unchecked jump from the device's
-        # current gains to the final recommendation.
-        deliverable, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], best["pid"])
+        # Device writes retain the final jump check; offline formula comparisons
+        # retain numeric/absolute bounds without an arbitrary default-PID cap.
+        deliverable, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], best["pid"], stage="delivery")
         if deliverable != best["pid"]:
             checked = simulate(cfg, deliverable)
             best = min((arm, checked), key=rank)
@@ -234,6 +238,7 @@ def plan(cfg, base, tuner=None, identified=None):
                 "history": history,
                 "llm_enabled": cfg["llm"]["enabled"],
                 "final_delivery_guard_notes": delivery_notes,
+                "final_delivery_guard_policy": guard_policy(cfg, "delivery"),
             }
         )
     final = next(r for r in results if r["name"] == "selected")["final"]
@@ -243,6 +248,13 @@ def plan(cfg, base, tuner=None, identified=None):
             json.dumps(cfg, sort_keys=True, allow_nan=False).encode()
         ).hexdigest(),
         "config": cfg,
+        "guardrail_context": {
+            "configured_policy": cfg["controller"]["guardrail_policy"],
+            "initial_candidates": guard_policy(cfg, "initial"),
+            "llm_rounds": guard_policy(cfg, "llm"),
+            "final_delivery": guard_policy(cfg, "delivery"),
+            "reference_pid": cfg["controller"]["initial_pid"],
+        },
         "identification": identification,
         "candidates": candidates,
         "unavailable": unavailable,

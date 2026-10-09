@@ -49,12 +49,13 @@ COMMENTS = {
     'controller.derivative_on': '微分作用位置：measurement=对实际温度变化取微分，减少设定值突变冲击；error=对目标减温度的误差取微分。',
     'controller.derivative_filter_s': '微分一阶滤波时间，单位秒；越大滤波越强但更迟缓，0=不滤波。D=0 时该设置不影响微分输出。',
     'controller.initialization': '任务开始/换参数时的内部状态：zero=积分和微分状态复位；tracking=预置积分以匹配当前输出，方便平滑接管。设备须支持相同语义。',
-    'controller.initial_pid': '起始 PID，也是限制参数增长的参照，不是最终推荐结果。全部为秒制并联增益的非负幅值；方向由 K 符号决定。use 模式从设备读取。',
+    'controller.guardrail_policy': '护栏策略：auto=test 模式初始公式候选和最终参数只检查有效数值与绝对范围，LLM 每轮仍限制相对增幅；use 模式全部保留相对设备当前参数的增幅检查。relative=所有模式沿用相对初始参数的限制，可复现旧结果。绝对范围与任务仿真评价始终保留。',
+    'controller.initial_pid': '参考 PID，不是最终推荐结果。use 模式从设备读取并限制相对它的增幅；relative 策略也用它限制离线公式。auto+test 不用默认参考值裁剪公式参数；LLM 每轮相对当前仿真参数限制增幅。全部为秒制并联非负幅值，方向由 K 决定。',
     'controller.initial_pid.p': '起始比例增益 Kp，单位 输出单位/°C；误差越大，比例输出越大。',
     'controller.initial_pid.i': '起始积分增益 Ki，单位 输出单位/(°C·秒)；累计误差以消除稳态温差，0 表示关闭积分。',
     'controller.initial_pid.d': '起始微分增益 Kd，单位 输出单位·秒/°C；对温度变化提供阻尼，0 表示关闭微分。',
     'controller.limits': '对 Z-N、SIMC 和 LLM 生效的确定性参数护栏。它只限制程序参数，不代替现场过程保护。',
-    'controller.global_max_increase_ratio': '统一增长倍数限制：0=不增加全局限制，仍执行每项自己的限制；大于 1 时，与每项倍数取较小值。0 到 1 之间也不启用此额外限制。',
+    'controller.global_max_increase_ratio': '启用相对增幅检查的阶段使用：0=只用每项自己的增长倍数；大于 1 时与每项倍数取较小值。auto+test 的初始公式与最终参数不使用增长倍数，但始终执行绝对范围检查。',
     'algorithms': '参与比较的传统整定算法及 SIMC 响应速度设置。',
     'algorithms.include': '候选算法列表：ZN_PID=Z-N PID；ZN_PI=Z-N PI；SIMC_PI=SIMC PI。可删除候选，但至少保留一项，不能重复。',
     'algorithms.simc_lambda_s': 'SIMC 闭环时间常数 λ，单位秒：null=自动用 max(θ,τ/3)。更大通常更缓和，更小通常更激进；必须为正，需看仿真结果。',
@@ -115,7 +116,7 @@ COMMENTS = {
     'device.max_planning_temperature_change_c': '离线计算期间，设备温度相对最初读数允许变化多少 °C；写前超过此值则拒绝写入，需重新计算。',
     'device.max_planning_output_change': '离线计算期间，设备输出相对最初读数允许变化多少，单位同 actuator；写前超过此值则拒绝写入。',
     'output': '结果保存设置。',
-    'output.directory': '输出目录，相对于本配置文件目录；保存 report.html、pid.json、summary.json 等。同目录重复运行会更新结果。',
+    'output.directory': '结果根目录，相对于本配置文件目录；每次运行自动建立独立时间戳子目录，在其中保存 report.html、pid.json、summary.json 等，不覆盖历史结果。',
     'output.save_csv': 'true=另存指标和响应 CSV 供绘图分析；false=不生成这些 CSV，仍保存报告和 JSON。',
     '_help': '旧版兼容说明文字，供阅读；不参与控制计算，可以保留。',
 }
@@ -124,7 +125,7 @@ for gain, name in [('p', '比例 Kp'), ('i', '积分 Ki'), ('d', '微分 Kd')]:
     COMMENTS[prefix] = f'{name} 的护栏，单位与 initial_pid.{gain} 一致；这不是执行器输出范围。'
     COMMENTS[prefix + '.min'] = f'{name} 允许的最小非负值。'
     COMMENTS[prefix + '.max'] = f'{name} 允许的最大值；所有算法和 LLM 都要遵守。'
-    COMMENTS[prefix + '.max_increase_ratio'] = f'{name} 每次相对参照值的最大增长倍数，至少为 1；例如 3=最多增至 3 倍。参照为 0 时只执行绝对上下限。'
+    COMMENTS[prefix + '.max_increase_ratio'] = f'{name} 在相对增幅检查阶段的最大增长倍数，至少为 1；例如 3=最多增至参照值的 3 倍。auto+test 的初始公式不按默认参考值裁剪。参照为 0 时只执行绝对上下限。'
 for section in ('task', 'model', 'actuator', 'controller', 'evaluation', 'llm', 'device'):
     COMMENTS['_help.' + section] = '兼容版中文摘要，供阅读，不是额外的参数设置。'
 
