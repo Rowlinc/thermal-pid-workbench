@@ -85,7 +85,7 @@
 
 ## LLM
 
-完整安装、密钥与四种运行组合见[README](../README.md)。`project.json`中的`llm`设置开关、服务、模型；根目录`config.json`只需提供`LLM_API_KEY`。`examples/deepseek.json`是仓库自带的可选任务配置，不是密钥文件。
+完整安装、密钥与四种运行组合见[README](../README.md)。`project.json`中的`llm`设置开关、服务、模型；根目录`config.json`只需提供`LLM_API_KEY`。任务与LLM服务统一在`project.json`配置，不需要专用DeepSeek配置文件。
 
 设置 `llm.enabled=true`。密钥读取顺序：`llm.api_key_env` 指定的环境变量 → `llm.credentials_file` 中的 `LLM_API_KEY`。保留本地 `config.json` 兼容以前配置，密钥不写入 `project.json`。
 

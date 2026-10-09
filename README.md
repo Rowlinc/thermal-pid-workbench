@@ -13,7 +13,6 @@
 | `project.json` | 对象模型/历史数据、目标温度、控制器、执行器、评价标准、LLM服务设置及设备接口 | 仓库自带，每项有中文注释 |
 | `config.json` | 私有 API 密钥，本入口读取其中的 `LLM_API_KEY` | 用 LLM 时由你在项目根目录创建；不上传 GitHub |
 | `pid_project.py` | 读取配置，执行整定、仿真及可选设备集成的主入口 | 仓库自带 |
-| `examples/deepseek.json` | 已开启 LLM 的可选任务配置示例，密钥路径指向根目录 `config.json` | 仓库自带；不是密钥文件，主流程无需使用它 |
 | `project.use.local.json` | 你的设备接入配置，与测试配置分开保存 | 按下文复制创建；已被 Git 忽略 |
 | 历史 CSV | 用于辨识的输出阶跃与温度响应数据 | 自己提供，独立于配置文件保存 |
 
@@ -148,11 +147,7 @@ python3 -m venv .venv
 
 可选：当前PowerShell窗口设置 `$env:LLM_API_KEY = '你的实际API密钥'`，可以替代密钥文件。环境变量优先于文件；若想改为使用文件，先执行 `Remove-Item Env:LLM_API_KEY -ErrorAction SilentlyContinue`。不要把密钥写进任务配置或截图公开。
 
-主流程始终用 `project.json`。仓库中也有 `examples/deepseek.json`，它是另一份已开启LLM的任务配置，默认每组2轮，读取 `../config.json`，输出到 `results/llm_project/<时间戳>/`；不需要额外创建名为deepseek.json的密钥文件。只有明确想用这份示例时才运行：
-
-```powershell
-.\.venv\Scripts\python.exe pid_project.py --config examples/deepseek.json
-```
+主流程统一使用 `project.json` 配置任务和LLM服务，使用根目录 `config.json` 保存密钥，不需要另建 DeepSeek 专用配置。
 
 ## 5．情况三：使用模式，不使用LLM
 

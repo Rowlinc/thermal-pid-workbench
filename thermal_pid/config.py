@@ -123,15 +123,6 @@ DEFAULTS = {
         "max_planning_output_change": 5.0,
     },
     "output": {"directory": "results/project", "save_csv": True},
-    "_help": {
-        "task": "初始温度、目标温度、环境温度和加热器初始温度分别设置。",
-        "model": "K 是 °C/输出单位；tau、theta 用秒。已知模型选 parameters，历史数据选 csv，内置模型探测选 probe。",
-        "actuator": "填写实际输出单位、上下限和每秒最大变化量。null 表示不限制变化速率。",
-        "controller": "initial_pid 和护栏均为秒制并联式增益的非负幅值；输出方向由 K 的符号确定。form/time_unit 选择设备导出的表示方式。",
-        "evaluation": "同时约束超调、最高温度、末段温差和调节时间；null 表示关闭对应可选门槛。",
-        "llm": "默认不联网。启用后读取环境变量或本地 credentials_file；密钥不要写进这个可公开的项目文件。",
-        "device": "test 不创建设备接口。use 需配置 adapter 并显式开启 write_enabled。simulated 只用于接口联调，不能代表现场验证。",
-    },
 }
 
 
@@ -144,6 +135,9 @@ def _merge(default, provided, path=""):
         raise ConfigError(f"{path or 'project'} must be an object")
     result = deepcopy(default)
     for key, value in provided.items():
+        if not path and key == "_help":
+            # Old explanatory metadata is accepted but is not an effective input.
+            continue
         location = f"{path}.{key}" if path else key
         if key not in default:
             raise ConfigError(f"unknown configuration field: {location}")

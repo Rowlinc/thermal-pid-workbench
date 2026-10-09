@@ -104,14 +104,6 @@ def main():
         node["type"] = ["number", "null"]
     save("project.schema.json", definition)
     save(
-        "examples/30_to_100.json",
-        {
-            "name": "30_to_100",
-            "task": {"initial_temperature_c": 30, "target_temperature_c": 100},
-            "output": {"directory": "../results/30_to_100"},
-        },
-    )
-    save(
         "examples/history.json",
         {
             "name": "synthetic_history",
@@ -171,15 +163,6 @@ def main():
                 "max_planning_output_change": 20,
             },
             "output": {"directory": "../results/use_tcp_local"},
-        },
-    )
-    save(
-        "examples/deepseek.json",
-        {
-            "name": "llm_30_to_100",
-            "llm": {"enabled": True, "credentials_file": "../config.json"},
-            "tuning": {"rounds": 2},
-            "output": {"directory": "../results/llm_project"},
         },
     )
     save(

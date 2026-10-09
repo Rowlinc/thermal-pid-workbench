@@ -118,7 +118,6 @@ COMMENTS = {
     'output': '结果保存设置。',
     'output.directory': '结果根目录，相对于本配置文件目录；每次运行自动建立独立时间戳子目录，在其中保存 report.html、pid.json、summary.json 等，不覆盖历史结果。',
     'output.save_csv': 'true=另存指标和响应 CSV 供绘图分析；false=不生成这些 CSV，仍保存报告和 JSON。',
-    '_help': '旧版兼容说明文字，供阅读；不参与控制计算，可以保留。',
 }
 for gain, name in [('p', '比例 Kp'), ('i', '积分 Ki'), ('d', '微分 Kd')]:
     prefix = f'controller.limits.{gain}'
@@ -126,8 +125,6 @@ for gain, name in [('p', '比例 Kp'), ('i', '积分 Ki'), ('d', '微分 Kd')]:
     COMMENTS[prefix + '.min'] = f'{name} 允许的最小非负值。'
     COMMENTS[prefix + '.max'] = f'{name} 允许的最大值；所有算法和 LLM 都要遵守。'
     COMMENTS[prefix + '.max_increase_ratio'] = f'{name} 在相对增幅检查阶段的最大增长倍数，至少为 1；例如 3=最多增至参照值的 3 倍。auto+test 的初始公式不按默认参考值裁剪。参照为 0 时只执行绝对上下限。'
-for section in ('task', 'model', 'actuator', 'controller', 'evaluation', 'llm', 'device'):
-    COMMENTS['_help.' + section] = '兼容版中文摘要，供阅读，不是额外的参数设置。'
 
 
 def strip_comments(text):

@@ -8,7 +8,7 @@ Thermal PID identification, Z-N/SIMC tuning, simulation evaluation and gateway i
 
 `project.json` contains the model/history, task, actuator/controller, criteria, LLM service settings and adapter configuration. Private root `config.json` supplies `LLM_API_KEY`; the unified entry point reads service/model settings from the task configuration. `pid_project.py` is the entry point.
 
-`examples/deepseek.json` is an included optional task preset, **not a credentials file**. It enables LLMs, uses two rounds and reads root credentials via `../config.json`. The main workflow below uses `project.json`; no additional DeepSeek file is needed.
+Use `project.json` for tasks/LLM settings and root `config.json` for private credentials. No separate DeepSeek task file is required.
 
 | Workflow | mode | llm.enabled | Behavior |
 |---|---|---|---|
@@ -78,7 +78,7 @@ Provider=openai names a compatible API protocol, including DeepSeek; the service
 
 Check the new report's LLM history. Requested/applied PID entries show usable suggestions; llm_unavailable/schema events show failure. A report or enabled switch does not prove API success; failures can retain prior best parameters. Three arms × four rounds allow up to 12 suggestions, plus possible retries. A key alone does not enable LLMs; editing configuration does not update old reports. Simulation is local, LLM calls are online.
 
-The process environment variable LLM_API_KEY may replace the file and takes precedence. The Chinese guide provides PowerShell instructions. To use the included optional preset instead, run the same entry with `--config examples/deepseek.json`; results go to `results/llm_project/<timestamp>/`.
+The process environment variable LLM_API_KEY may replace the file and takes precedence. The Chinese guide provides PowerShell instructions.
 
 ## 3. Use without LLM
 

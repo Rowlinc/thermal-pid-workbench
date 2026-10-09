@@ -2,6 +2,7 @@
 
 ## Unreleased — 2026-10-09
 
+- Remove unused `_help` metadata from current configurations/schema, redundant task aliases and duplicate example reports; retain compatibility when reading old configurations and keep one public reference snapshot in `result/`.
 - Document virtual-environment installation and complete test/use workflows with and without LLMs; clarify private config.json credentials versus task presets and fix root credential paths in examples.
 - Separate offline analytical gain validation from device-relative increase checks using `controller.guardrail_policy`; preserve LLM incremental checks and the existing use-mode final jump constraint, with `relative` available for prior-result reproduction.
 - Save each unified project run in a unique timestamp folder; preserve previous reports and handle timestamp collisions.

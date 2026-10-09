@@ -36,7 +36,6 @@ logs/
 build_with_matlab310.bat
 fix_py38_compat.py
 results/
-!examples/results/
 work/
 .test-deps/
 .pytest_cache/

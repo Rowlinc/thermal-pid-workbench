@@ -45,3 +45,10 @@ def test_init_creates_runnable_documented_config(tmp_path):
     path=tmp_path/'new.json'; write_defaults(path)
     assert '默认值' in path.read_text(encoding='utf-8')
     assert load_project(path)[0]==DEFAULTS
+
+
+def test_legacy_help_metadata_does_not_enter_effective_config(tmp_path):
+    path = tmp_path / 'project.json'
+    path.write_text(json.dumps({'_help': {'task': 'old explanatory text'}}), encoding='utf-8')
+    assert load_project(path)[0] == DEFAULTS
+    assert '_help' not in DEFAULTS
