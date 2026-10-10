@@ -94,6 +94,9 @@ def run(cfg, base, cancelled=None, progress=None):
 
 
 def main(argv=None):
+    from core.config import ensure_utf8_console
+
+    ensure_utf8_console()
     parser = argparse.ArgumentParser(
         description="Thermal PID Workbench: one editable project configuration"
     )

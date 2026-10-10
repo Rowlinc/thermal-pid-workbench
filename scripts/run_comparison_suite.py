@@ -15,6 +15,14 @@ from pid_project import create_run_directory, run
 from thermal_pid.config import load_project, ConfigError
 
 
+def report_link(report, directory):
+    try:
+        return Path(os.path.relpath(report, directory)).as_posix()
+    except ValueError:
+        # Windows cannot form a relative path between different drives.
+        return Path(report).resolve().as_uri()
+
+
 def save_summary(directory, rows, failures, planned):
     payload = {"planned_scenarios": planned, "completed_scenarios": len({r['scenario'] for r in rows}),
                "rows": rows, "execution_failures": failures}
@@ -79,6 +87,9 @@ def save_summary(directory, rows, failures, planned):
 
 
 def main(argv=None):
+    from core.config import ensure_utf8_console
+
+    ensure_utf8_console()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('configs', nargs='*', help='configuration paths; default: examples/scenarios/*.json')
     parser.add_argument('--scenario-set', choices=['scenarios','route_benchmarks'], default='scenarios', help='built-in configuration folder, used when no explicit configs are supplied')
@@ -123,7 +134,7 @@ def main(argv=None):
                                  llm_enabled=cfg['llm']['enabled'], llm_history_records=len(history),
                                  valid_llm_suggestions=sum('applied_pid' in h for h in history),
                                  scenario_elapsed_s=round(elapsed, 3), config_sha256=result['config_sha256'],
-                                 report=Path(os.path.relpath(output / 'report.html', directory)).as_posix()))
+                                 report=report_link(output / 'report.html', directory)))
                 print(f"  {arm['name']}: eligible={m['eligible']} IAE={m['iae_c_s']:.2f} settling={m['settling_time_s']}", flush=True)
         except (ConfigError, RuntimeError, OSError, ValueError, ImportError) as exc:
             failures.append({'config': path.name, 'error_type': type(exc).__name__})
