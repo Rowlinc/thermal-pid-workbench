@@ -23,6 +23,15 @@ class BaseLLMProvider(ABC):
         self.timeout = timeout
         self.request_options: Dict[str, Any] = {}
         self.response_metadata: Dict[str, Any] = {}
+        self._active_response = None
+
+    def close(self):
+        for resource in (getattr(self, '_active_response', None),
+                         getattr(self, 'client', None), getattr(self, 'session', None)):
+            close = getattr(resource, 'close', None)
+            if close:
+                try: close()
+                except Exception: pass
 
     def _record_choice(self, choice):
         """Keep termination metadata and counts, never reasoning text."""
@@ -70,17 +79,23 @@ class OpenAISDKProvider(BaseLLMProvider):
             stream=True,
             **self.request_options,
         )
-        accumulated = ""
-        for chunk in resp:
-            usage = getattr(chunk, 'usage', None)
-            if usage is not None:
-                self.response_metadata['usage'] = usage.model_dump() if hasattr(usage, 'model_dump') else dict(usage)
-            content_chunk = self._extract_chunk(chunk, accumulated)
-            if content_chunk:
-                accumulated += content_chunk
-                on_chunk(content_chunk)
+        self._active_response = resp
+        try:
+            accumulated = ""
+            for chunk in resp:
                 if abort_check and abort_check():
                     break
+                usage = getattr(chunk, 'usage', None)
+                if usage is not None:
+                    self.response_metadata['usage'] = usage.model_dump() if hasattr(usage, 'model_dump') else dict(usage)
+                content_chunk = self._extract_chunk(chunk, accumulated)
+                if content_chunk:
+                    accumulated += content_chunk
+                    on_chunk(content_chunk)
+        finally:
+            close = getattr(resp, 'close', None)
+            if close: close()
+            self._active_response = None
 
     def _extract_chunk(self, chunk: Any, accumulated: str) -> str:
         choices = getattr(chunk, "choices", None) or []
@@ -123,11 +138,13 @@ class AnthropicSDKProvider(BaseLLMProvider):
             temperature=0.3,
             **{'max_tokens': 1000, **self.request_options},
         ) as stream:
+            self._active_response = stream
             for text in stream.text_stream:
+                if abort_check and abort_check():
+                    break
                 if text:
                     on_chunk(text)
-                    if abort_check and abort_check():
-                        break
+            self._active_response = None
 
 class HTTPFallbackProvider(BaseLLMProvider):
     def __init__(self, api_key: str, base_url: str, model: str, timeout: float, is_anthropic: bool, requests_module=None):
@@ -186,8 +203,10 @@ class HTTPFallbackProvider(BaseLLMProvider):
             base_url = f"{base_url}/v1"
         session = self.session if self.session else self.requests
         with session.post(f"{base_url}/messages", headers=headers, json=payload, timeout=self.timeout, stream=True) as resp:
+            self._active_response = resp
             resp.raise_for_status()
             self._parse_stream(resp, on_chunk, abort_check, self._extract_anthropic)
+            self._active_response = None
 
     def _extract_anthropic(self, data: Dict[str, Any]) -> str:
         if data.get("type") == "content_block_delta" and "delta" in data:
@@ -212,8 +231,10 @@ class HTTPFallbackProvider(BaseLLMProvider):
         payload.update(extra_body)
         session = self.session if self.session else self.requests
         with session.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, timeout=self.timeout, stream=True) as resp:
+            self._active_response = resp
             resp.raise_for_status()
             self._parse_stream(resp, on_chunk, abort_check, self._extract_openai)
+            self._active_response = None
 
     def _extract_openai(self, data: Dict[str, Any]) -> str:
         if isinstance(data.get('usage'), dict):
@@ -227,6 +248,8 @@ class HTTPFallbackProvider(BaseLLMProvider):
 
     def _parse_stream(self, resp, on_chunk, abort_check, extract_fn):
         for line in resp.iter_lines():
+            if abort_check and abort_check():
+                break
             if not line: continue
             line_str = line.decode("utf-8")
             if not line_str.startswith("data: "): continue
@@ -239,5 +262,3 @@ class HTTPFallbackProvider(BaseLLMProvider):
             chunk = extract_fn(data)
             if chunk:
                 on_chunk(chunk)
-                if abort_check and abort_check():
-                    break

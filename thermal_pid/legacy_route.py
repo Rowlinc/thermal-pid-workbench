@@ -4,18 +4,14 @@ The controller/plant/evaluator are shared by all routes. This is not the
 upstream built-in heating demo. No hardware adapter is created here.
 """
 from copy import deepcopy
-import threading
 
 from .control import Controller, guard, simulate, rank
 from .models import Plant
 from .process import checkpoint, quantity
 from pid_safety import PIDRejected
 
-_CONFIG_LOCK = threading.RLock()
-
-
 def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
-    from core.config import CONFIG, DEFAULT_CONFIG
+    from core.config import DEFAULT_CONFIG, runtime_config
     from core.env import BaseTuningEnvironment
     from core.tuning_engine import run_tuning_engine
 
@@ -106,16 +102,11 @@ def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
     # the original staged prompt, parser and transport. Injected test tuners can
     # implement the same analyze interface without an actual network connection.
     original_tuner = getattr(tuner, 'client', tuner)
-    with _CONFIG_LOCK:
-        saved = deepcopy(CONFIG)
-        try:
-            CONFIG.clear(); CONFIG.update(runtime)
-            engine = run_tuning_engine(Environment(), original_tuner, 'generic',
-                event_sink=Sink(), emit_console=False,
-                guardrail_retries_per_round=cfg['tuning']['max_guardrail_retries_per_round'],
-                max_llm_requests=cfg['tuning']['max_llm_requests_per_route'])
-        finally:
-            CONFIG.clear(); CONFIG.update(saved)
+    with runtime_config(runtime):
+        engine = run_tuning_engine(Environment(), original_tuner, 'generic',
+            event_sink=Sink(), emit_console=False,
+            guardrail_retries_per_round=cfg['tuning']['max_guardrail_retries_per_round'],
+            max_llm_requests=cfg['tuning']['max_llm_requests_per_route'])
     checkpoint(cancelled)
     # The original final PID remains in the pool, alongside all previously
     # applied PIDs, and the guarded original initialization.

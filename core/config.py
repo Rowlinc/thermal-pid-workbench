@@ -6,6 +6,10 @@ import io
 import json
 import os
 import sys
+from collections.abc import MutableMapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from copy import deepcopy
 from typing import Any, Dict
 
 
@@ -116,7 +120,34 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "PID_MAX_INCREASE_RATIO"        : 0.0,
 }
 
-CONFIG: Dict[str, Any] = dict(DEFAULT_CONFIG)
+_ACTIVE_CONFIG = ContextVar('pid_runtime_config', default=None)
+
+
+class RuntimeConfig(MutableMapping):
+    """Keep the legacy mapping interface with an isolated per-route context."""
+    def __init__(self, values): self.base = dict(values)
+    def _values(self):
+        active = _ACTIVE_CONFIG.get()
+        return self.base if active is None else active
+    def __getitem__(self, key): return self._values()[key]
+    def __setitem__(self, key, value): self._values()[key] = value
+    def __delitem__(self, key): del self._values()[key]
+    def __iter__(self): return iter(self._values())
+    def __len__(self): return len(self._values())
+    def copy(self): return dict(self._values())
+    def __deepcopy__(self, memo): return deepcopy(self._values(), memo)
+
+
+@contextmanager
+def runtime_config(values):
+    token = _ACTIVE_CONFIG.set(deepcopy(values))
+    try:
+        yield
+    finally:
+        _ACTIVE_CONFIG.reset(token)
+
+
+CONFIG = RuntimeConfig(DEFAULT_CONFIG)
 CONFIG_PATH = "config.json"
 PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 
@@ -149,7 +180,7 @@ def load_config(create_if_missing: bool = True, verbose: bool = True) -> None:
     elif create_if_missing:
         try:
             with open(CONFIG_PATH, "w", encoding="utf-8") as handle:
-                json.dump(CONFIG, handle, indent=4, ensure_ascii=False)
+                json.dump(dict(CONFIG), handle, indent=4, ensure_ascii=False)
             if verbose:
                 print(f"[INFO] 未找到配置文件，已生成默认配置: {CONFIG_PATH}")
                 print(f"[HINT] 请打开 {CONFIG_PATH} 修改您的 API Key 和串口设置。")

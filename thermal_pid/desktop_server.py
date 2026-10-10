@@ -140,10 +140,10 @@ class DesktopServer:
                     if route=='/api/settings':return self.send(app.state.save(body))
                     if route=='/api/diagnostics':
                         with app.manager.lock:
-                            if any(j.status=='running' for j in app.manager.jobs.values()):
+                            if any(j.status in ('running','stopping') for j in app.manager.jobs.values()):
                                 raise ValueError('请在运行结束后执行诊断')
                             import importlib.util
-                            checks=[dict(name='应用版本',status='PASS',detail='0.4.3 · Python '+sys.version.split()[0]),
+                            checks=[dict(name='应用版本',status='PASS',detail='0.4.4 · Python '+sys.version.split()[0]),
                                     dict(name='项目配置',status='PASS',detail='模型、单位、任务与限制已通过配置检查'),
                                     dict(name='LLM密钥',status='PASS' if app.state.api_key() else 'WARN',detail='已配置（不显示）' if app.state.api_key() else '未配置；关闭LLM仍可仿真')]
                             for label,module in [('串口支持','serial'),('OpenAI SDK','openai'),('Anthropic SDK','anthropic')]:

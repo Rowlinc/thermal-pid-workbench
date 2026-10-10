@@ -93,6 +93,7 @@ const words = {
 };
 const statusWords = {
   running: "运行中",
+  stopping: "正在停止",
   completed: "已完成",
   failed: "失败",
   cancelled: "已停止",
@@ -208,7 +209,7 @@ function updateContext() {
   );
   $("#response-title").textContent =
     p.process.name + "响应（" + p.process.unit + "）";
-  if (!job || job.status !== "running") {
+  if (!job || !["running", "stopping"].includes(job.status)) {
     $("#state-badge").textContent =
       p.mode === "test" ? "测试模式" : "设备使用模式";
     $("#state-badge").className = "badge";
@@ -282,7 +283,7 @@ function beginPoll() {
       if (!job) return;
       job = await api("/api/job/" + job.id);
       drawJob(job);
-      if (job.status !== "running") {
+      if (!["running", "stopping"].includes(job.status)) {
         clearInterval(polling);
         loadHistory();
       }
@@ -307,11 +308,23 @@ function drawJob(j) {
   $("#state-badge").className = "badge " + j.status;
   $("#job-info").textContent =
     `${j.id} · ${statusWords[j.status] || j.status} · ${num(j.elapsed_s, 1)} 秒${j.error ? " · " + j.error : ""}`;
-  const active = j.status === "running";
+  const active = ["running", "stopping"].includes(j.status);
   $("#run").disabled = active;
-  $("#stop").disabled = !active;
-  $("#pause").disabled = !active || j.workflow === "project";
-  $("#resume").disabled = !active || j.workflow === "project";
+  $("#stop").disabled = j.status !== "running";
+  $("#stop").textContent = j.status === "stopping" ? "正在停止…" : "停止";
+  $("#pause").disabled = j.status !== "running" || j.workflow === "project";
+  $("#resume").disabled = j.status !== "running" || j.workflow === "project";
+  let routeProgress = $("#route-progress");
+  if (!routeProgress) {
+    routeProgress = document.createElement("div");
+    routeProgress.id = "route-progress";
+    $("#job-info").after(routeProgress);
+  }
+  const routeWords = {queued:"排队中",running:"调优中",waiting_llm:"等待大模型",completed:"已完成",cancelled:"已停止",failed:"执行失败"};
+  routeProgress.innerHTML = (j.route_progress || []).length
+    ? `<p>各路线独立调优，完成后统一选优${j.scheduling ? "；最多 " + j.scheduling.effective_max_parallel_routes + " 组同时运行" : ""}。</p><table><thead><tr><th>路线</th><th>状态</th><th>进度</th></tr></thead><tbody>` +
+      j.route_progress.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(routeWords[r.status] || r.status)}</td><td>${esc(r.message)}</td></tr>`).join("") + "</tbody></table>"
+    : "";
   const selected = j.metrics.find((m) => m.name === "selected"),
     unit = j.process?.unit || state.project.process.unit;
   $("#result-summary").innerHTML = [
@@ -591,7 +604,7 @@ async function selectHistory(id) {
   hiddenSeries.clear();
   go("results");
   drawJob(job);
-  if (job.status === "running") beginPoll();
+  if (["running", "stopping"].includes(job.status)) beginPoll();
   else clearInterval(polling);
 }
 function download(name, data, type = "application/json") {

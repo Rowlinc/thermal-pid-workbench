@@ -52,6 +52,7 @@ class Job:
         self.preferences.setdefault('process',deepcopy(self.project['process']))
         self.status, self.error = 'running', ''
         self.events, self.output, self.result, self.chart = [], None, None, None
+        self.route_progress = {}
         self.started = time.time()
         self.ended = None
         self.legacy_target = self.legacy.get('MATLAB_SETPOINT') if self.workflow in ('python','simulink') else None
@@ -74,16 +75,22 @@ class Job:
 
     def emit(self, event):
         with self.lock:
-            self.events.append(self.redact(event))
+            event = self.redact(event)
+            if event.get('type') == 'route_status':
+                self.route_progress[event['name']] = event
+                # Waiting heartbeats update the UI without growing history indefinitely.
+                if event.get('heartbeat'):
+                    return
+            self.events.append(event)
             # Persist useful milestones so a crash leaves an inspectable record.
-            if event.get('type') in ('candidate','arm'):
+            if event.get('type') in ('candidate','arm','route_status','lifecycle'):
                 self.persist()
 
     def persist(self):
         self.store._write(self.directory/'job.json', dict(
             id=self.id, workflow=self.workflow, status=self.status, error=self.error,
             started=self.started, ended=self.ended, output=str(self.output) if self.output else None,
-            result=self.redact(self.result), events=self.events,
+            result=self.redact(self.result), events=self.events, route_progress=self.route_progress,
         ))
         project=getattr(self,'project',None)
         if project:
@@ -117,6 +124,8 @@ class Job:
             return dict(id=self.id, workflow=self.workflow, status=self.status,
                         error=self.error, elapsed_s=round((self.ended or time.time())-self.started,1),
                         events=self.events[-120:], metrics=metrics, series=series,
+                        route_progress=list(self.route_progress.values()),
+                        scheduling=result.get('scheduling') if result else None,
                         result_available=self.output is not None,
                         selected_method=result.get('selected_method') if result else None,
                         selection=result.get('selection') if result else None,
@@ -268,7 +277,7 @@ class JobManager:
 
     def start(self, payload):
         with self.lock:
-            if any(j.status=='running' or getattr(j,'worker',None) and j.worker.is_alive() for j in self.jobs.values()):
+            if any(j.status in ('running','stopping') or getattr(j,'worker',None) and j.worker.is_alive() for j in self.jobs.values()):
                 raise ValueError('已有任务正在运行，请先结束或等待完成。')
             mode=payload.get('workflow','project')
             if mode not in ('project','python','simulink','hardware'):
@@ -300,12 +309,13 @@ class JobManager:
         job.started=data['started'];job.output=Path(data['output']) if data['output'] else None
         job.ended=data.get('ended')
         job.result=data['result'];job.events=data['events'];job.lock=threading.RLock()
+        job.route_progress=data.get('route_progress',{})
         job.key='';job.cancel=threading.Event();job.controller=None
         job.project=_merge(DEFAULTS,json.loads((path.parent/'project.json').read_text(encoding='utf-8'))) if (path.parent/'project.json').is_file() else self.store.project()
         legacy_path=path.parent/'legacy.json'
         old=json.loads(legacy_path.read_text(encoding='utf-8')) if legacy_path.is_file() else {}
         job.legacy_target=old.get('MATLAB_SETPOINT') if job.workflow in ('python','simulink') else None
-        if job.status=='running':
+        if job.status in ('running','stopping'):
             job.status='interrupted';job.error='上次应用退出时任务未确认完成，请查看现场状态和审计。'
             job.persist()
         self.jobs[identifier]=job
@@ -347,9 +357,11 @@ class JobManager:
         job=self.get(identifier)
         if job.status!='running':return job.view()
         if action=='stop':
-            job.cancel.set()
-            if job.controller:job.controller.stop()
-            job.emit({'type':'lifecycle','phase':'stopping','message':'已请求停止，当前请求结束后退出；设备模式按审计记录确认状态。'})
+            with job.lock:
+                job.cancel.set()
+                job.status='stopping'
+                if job.controller:job.controller.stop()
+                job.emit({'type':'lifecycle','phase':'stopping','message':'正在取消各条路线和大模型等待，不再采用后续建议；设备模式等待退出审计。'})
         elif job.controller and action in ('pause','resume'):
             getattr(job.controller,action)()
         else:raise ValueError('此工作流仅支持停止，原项目工作流支持暂停/继续。')

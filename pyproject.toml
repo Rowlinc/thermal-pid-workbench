@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thermal-pid-workbench"
-version = "0.4.3"
+version = "0.4.4"
 description = "Visual single-loop PID workbench: process models, Z-N/SIMC, guarded LLM tuning and persistent runs"
 readme = "README.md"
 requires-python = ">=3.10"

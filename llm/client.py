@@ -16,6 +16,7 @@ from llm.prompts import SYSTEM_PROMPT, build_user_prompt, get_system_prompt
 from llm.response_parser import parse_json_response
 from llm.stream_formatter import JSONStreamFormatter
 from llm.providers import BaseLLMProvider, OpenAISDKProvider, AnthropicSDKProvider, HTTPFallbackProvider
+from llm.cancellation import RequestCancelled, interruptible_request
 
 
 class LLMTuner:
@@ -33,6 +34,7 @@ class LLMTuner:
         debug_output: bool = False,
         max_attempts: int = 5,
         request_options: Optional[Dict[str, Any]] = None,
+        waiting_callback: Optional[Callable[[float], None]] = None,
     ):
         self.api_key = api_key
         self.base_url = (base_url or "").rstrip("/")
@@ -48,6 +50,7 @@ class LLMTuner:
         self.stream_callback = stream_callback
         self.log_callback = log_callback
         self.abort_check = abort_check
+        self.waiting_callback = waiting_callback
 
         self.llm_client: BaseLLMProvider = self._initialize_provider()
         self.llm_client.request_options = self.request_options
@@ -55,6 +58,24 @@ class LLMTuner:
         self.use_sdk = isinstance(self.llm_client, (OpenAISDKProvider, AnthropicSDKProvider))
         self.client = getattr(self.llm_client, "client", None)
         self.requests = getattr(self.llm_client, "requests", None)
+
+    def fork(self, abort_check=None, log_callback=None, waiting_callback=None):
+        """Each route owns its transport and response metadata."""
+        return LLMTuner(self.api_key, self.base_url, self.model, self.provider_choice,
+            emit_console=self.emit_console, debug_output=self.debug_output,
+            timeout=self.timeout, max_attempts=self.max_attempts,
+            request_options=dict(self.request_options),
+            abort_check=abort_check or self.abort_check, log_callback=log_callback,
+            waiting_callback=waiting_callback)
+
+    def close(self):
+        close = getattr(self.llm_client, 'close', None)
+        if not close: return
+        if self.abort_check and self.abort_check():
+            import threading
+            threading.Thread(target=close, name='pid-tuner-close', daemon=True).start()
+        else:
+            close()
 
     def _initialize_provider(self) -> BaseLLMProvider:
         try:
@@ -146,6 +167,8 @@ class LLMTuner:
                 return func(*args, **kwargs)
             except (KeyboardInterrupt, SystemExit):
                 raise
+            except RequestCancelled:
+                raise
             except Exception as exc:
                 last_exception = exc
                 if attempt < max_retries - 1:
@@ -177,23 +200,34 @@ class LLMTuner:
         formatter = JSONStreamFormatter() if self.emit_console else None
 
         def on_chunk(chunk: str) -> None:
+            if self.abort_check and self.abort_check():
+                return
             full_content.append(chunk)
             self._emit_stream_update("".join(full_content), formatter=formatter)
 
-        try:
-            self.llm_client.execute_request(
+        def execute(provider):
+            return interruptible_request(lambda: provider.execute_request(
                 openai_msgs=openai_msgs,
                 anthropic_msgs=anthropic_msgs,
                 system_prompt=system_prompt,
                 on_chunk=on_chunk,
                 abort_check=self.abort_check,
-            )
+            ), self.abort_check, getattr(provider, 'close', lambda: None),
+                getattr(self, 'waiting_callback', None))
+
+        try:
+            execute(self.llm_client)
+        except RequestCancelled:
+            raise
         except Exception as sdk_error:
+            if self.abort_check and self.abort_check():
+                raise RequestCancelled() from None
             if self.use_sdk:
                 self._emit_log(
                     "warn",
                     f"\n[WARN] SDK request failed, falling back to HTTP: {sdk_error}",
                 )
+                previous = self.llm_client
                 self.llm_client = HTTPFallbackProvider(
                     self.api_key,
                     self.base_url,
@@ -205,13 +239,9 @@ class LLMTuner:
                 self.llm_client.request_options = getattr(self, 'request_options', {})
                 self.requests = self.llm_client.requests
                 full_content.clear()
-                self.llm_client.execute_request(
-                    openai_msgs=openai_msgs,
-                    anthropic_msgs=anthropic_msgs,
-                    system_prompt=system_prompt,
-                    on_chunk=on_chunk,
-                    abort_check=self.abort_check,
-                )
+                close = getattr(previous, 'close', None)
+                if close: close()
+                execute(self.llm_client)
             else:
                 raise
 
@@ -242,6 +272,8 @@ class LLMTuner:
             content = self._call_with_retry(
                 self._execute_request, openai_msgs, anthropic_msgs, system_prompt
             )
+            if getattr(self, 'abort_check', None) and self.abort_check():
+                raise RequestCancelled()
 
             if self.debug_output:
                 self._emit_log(
@@ -265,6 +297,9 @@ class LLMTuner:
                 "warn",
                 "[WARN] LLM response could not be parsed as JSON; ignoring this round.",
             )
+            return None
+        except RequestCancelled:
+            self.last_request_diagnostic = dict(code='cancelled', message='本地已停止等待大模型，不重试、不采用未完成建议。')
             return None
         except Exception as exc:
             self.last_request_diagnostic = dict(code='request_failed', message='LLM API 请求失败；请检查服务、网络和连接诊断。')

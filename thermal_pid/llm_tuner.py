@@ -7,6 +7,12 @@ class ConfiguredTuner:
     def __init__(self, client):
         self.client = client
 
+    def fork(self, **kwargs):
+        return ConfiguredTuner(self.client.fork(**kwargs))
+
+    def close(self):
+        self.client.close()
+
     @property
     def last_request_diagnostic(self):
         return getattr(self.client, 'last_request_diagnostic', {})

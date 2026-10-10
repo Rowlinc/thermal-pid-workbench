@@ -315,90 +315,85 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
             candidates.append(result)
     key = lambda t: rank(t, cfg['tuning'].get('selection_priority', 'accuracy'))
     selected = min(candidates, key=key) if candidates else None
+    owned_tuner = tuner is None
     if candidates and cfg["llm"]["enabled"] and tuner is None:
         tuner = make_tuner(cfg, base, cancelled=cancelled) if cancelled is not None else make_tuner(cfg, base)
     results = []
+    specifications = []
     legacy_status = 'disabled' if not cfg['tuning'].get('include_legacy_route', True) else 'unavailable'
-    legacy_reference = None
+    hybrid_status = 'disabled'
     if data is not None and candidates and (cfg['tuning'].get('include_legacy_route', True) or cfg['tuning']['compare_original']):
         try:
             old = original_identify(*data[:3])
-            parameters = old.get("ziegler_nichols", {}).get(
-                "PID", {"error": old.get("error", "original identifier unavailable")}
-            )
-            result = evaluate("original_zn", parameters)
-            if result:
+            parameters = old.get('ziegler_nichols', {}).get('PID', {'error':old.get('error','original identifier unavailable')})
+            reference = evaluate('original_zn', parameters)
+            if reference:
                 if cfg['tuning']['compare_original']:
-                    results.append(dict(name='original_zn', initial_method='ZN_PID', initial=result,
-                        final=result, history=[], llm_enabled=False, role='identification_reference',
+                    results.append(dict(name='original_zn', initial_method='ZN_PID', initial=reference,
+                        final=reference, history=[], llm_enabled=False, role='identification_reference',
                         label='原辨识 Z-N 公式参考（不是原版完整调优）'))
                 if cfg['tuning'].get('include_legacy_route', True):
-                    from .legacy_route import run_legacy_route
-                    initial = dict(result, name='legacy_route')
-                    best, history, execution = (run_legacy_route(cfg, initial, tuner, cancelled, progress)
-                        if cfg['llm']['enabled'] else (initial, [], dict(completed=False, scope='LLM disabled; guarded original initialization only')))
-                    legacy_status = 'completed' if execution['completed'] else ('llm_disabled' if not cfg['llm']['enabled'] else 'incomplete')
-                    legacy_reference = dict(name='legacy_route', label='旧版完整调优路线' if cfg['llm']['enabled'] else '旧版初始化（LLM关闭）',
-                        initial_method='ZN_PID', initial=initial, final=best, history=history,
-                        llm_enabled=cfg['llm']['enabled'], role='route', family='legacy', execution=execution)
-                    results.append(legacy_reference)
+                    specifications.append(dict(name='legacy_route', family='legacy',
+                        label='旧版完整调优路线' if cfg['llm']['enabled'] else '旧版初始化（LLM关闭）',
+                        initial_method='ZN_PID', initial=dict(reference, name='legacy_route')))
+        except Cancelled:
+            raise
         except Exception as exc:
-            checkpoint(cancelled)
-            unavailable.append({"name": "original_zn", "reason": type(exc).__name__})
+            unavailable.append(dict(name='original_zn', reason=type(exc).__name__))
     names = {'ZN_PID':'corrected_zn', 'ZN_PI':'zn_pi_route', 'SIMC_PI':'simc_route', 'USER_PID':'user_route'}
     labels = {'ZN_PID':'修正 Z-N PID 路线', 'ZN_PI':'修正 Z-N PI 路线', 'SIMC_PI':'SIMC PI 路线', 'USER_PID':'用户 PID 路线'}
-    # No preselected method is discarded: every calculable method has its own
-    # refinement history, including a SIMC initially slower than Z-N.
     for candidate in candidates:
-        arm = dict(candidate, name=names.get(candidate['name'], candidate['name']))
-        checkpoint(cancelled)
-        best, history = refine(cfg, arm, tuner, m, cancelled, progress) if cfg["llm"]["enabled"] else (arm, [])
-        # Device writes retain the final jump check; offline formula comparisons
-        # retain numeric/absolute bounds without an arbitrary default-PID cap.
+        specifications.append(dict(name=names.get(candidate['name'],candidate['name']),
+            label=labels.get(candidate['name'],candidate['name']), family='new',
+            initial_method=candidate['name'], initial=candidate))
+    if cfg['tuning'].get('include_corrected_legacy_route', True):
+        seed = next((c for c in candidates if c['name']=='ZN_PID'), None)
+        hybrid_status = 'llm_disabled' if not cfg['llm']['enabled'] else 'unavailable'
+        if cfg['llm']['enabled'] and seed is not None and m['K'] > 0:
+            specifications.append(dict(name='corrected_legacy_route', family='hybrid',
+                label='混合路线：修正初值＋旧版连续调优', initial_method='ZN_PID', initial=seed))
+
+    def execute(route, client, stop, emit):
+        local = deepcopy(cfg)
+        arm = dict(route['initial'], name=route['name'])
+        if route['family'] in ('legacy','hybrid') and local['llm']['enabled']:
+            from .legacy_route import run_legacy_route
+            best, history, execution = run_legacy_route(local, arm, client, stop, emit)
+        else:
+            best, history = refine(local, arm, client, m, stop, emit) if local['llm']['enabled'] else (arm, [])
+            execution = dict(completed=bool(local['llm']['enabled']),
+                scope='full-task LLM refinement' if local['llm']['enabled'] else 'LLM disabled; checked initialization only')
         try:
-            guard(cfg, cfg["controller"]["initial_pid"], best["pid"], stage="delivery")
+            guard(local, local['controller']['initial_pid'], best['pid'], stage='delivery')
             delivery_notes = []
         except PIDRejected as exc:
             delivery_notes = exc.decision.notes
             best = arm
-        results.append(
-            {
-                "name": arm["name"],
-                "initial_method": candidate['name'],
-                "label": labels.get(candidate['name'], candidate['name']),
-                "role": 'route', "family": 'new',
-                "initial": arm,
-                "final": best,
-                "history": history,
-                "llm_enabled": cfg["llm"]["enabled"],
-                "final_delivery_guard_notes": delivery_notes,
-                "final_delivery_guard_policy": guard_policy(cfg, "delivery"),
-            }
-        )
-        if progress:
-            progress({'type':'arm','name':arm['name'],'pid':best['pid'],
-                      'metrics':best['metrics'],'history':history,
-                      'samples':best['samples'][::max(1,len(best['samples'])//500)]})
-    hybrid_status = 'disabled'
-    if cfg['tuning'].get('include_corrected_legacy_route', True):
-        seed = next((c for c in candidates if c['name'] == 'ZN_PID'), None)
-        hybrid_status = 'llm_disabled' if not cfg['llm']['enabled'] else 'unavailable'
-        if cfg['llm']['enabled'] and seed is not None and m['K'] > 0:
-            try:
-                from .legacy_route import run_legacy_route
-                initial = dict(seed, name='corrected_legacy_route')
-                best, history, execution = run_legacy_route(cfg, initial, tuner, cancelled, progress)
-                hybrid_status = 'completed' if execution['completed'] else 'incomplete'
-                results.append(dict(name='corrected_legacy_route', label='混合路线：修正初值＋旧版连续调优',
-                    initial_method='ZN_PID', initial=initial, final=best, history=history,
-                    llm_enabled=True, role='route', family='hybrid', execution=execution))
-                if progress:
-                    progress({'type':'arm','name':'corrected_legacy_route','pid':best['pid'],
-                        'metrics':best['metrics'],'history':history,
-                        'samples':best['samples'][::max(1,len(best['samples'])//500)]})
-            except Exception as exc:
-                checkpoint(cancelled)
-                unavailable.append({'name':'corrected_legacy_route','reason':type(exc).__name__})
+        result = dict(route, initial=arm, final=best, history=history, role='route',
+            llm_enabled=local['llm']['enabled'], execution=execution,
+            final_delivery_guard_notes=delivery_notes,
+            final_delivery_guard_policy=guard_policy(local,'delivery'))
+        if emit:
+            emit(dict(type='arm', name=route['name'], pid=best['pid'], metrics=best['metrics'],
+                history=history, samples=best['samples'][::max(1,len(best['samples'])//500)]))
+        return result
+
+    from .route_runner import run_routes
+    try:
+        evaluated, errors, scheduling = run_routes(cfg, tuner, specifications, execute, cancelled, progress)
+    finally:
+        # Only internally-created parent transports belong to this plan.
+        if owned_tuner and callable(getattr(tuner, 'close', None)):
+            tuner.close()
+    results.extend(evaluated)
+    unavailable.extend(errors)
+    legacy_reference = next((r for r in evaluated if r['family']=='legacy'), None)
+    if legacy_reference:
+        legacy_status = ('completed' if legacy_reference['execution']['completed'] else
+                         'llm_disabled' if not cfg['llm']['enabled'] else 'incomplete')
+    hybrid = next((r for r in evaluated if r['family']=='hybrid'), None)
+    if hybrid:
+        hybrid_status = 'completed' if hybrid['execution']['completed'] else 'incomplete'
     routes = [r for r in results if r.get('role') == 'route']
     # On an exact tie retain the old baseline; adding a duplicate does not count
     # as an improvement. Eligibility and the selected objective are identical.
@@ -413,7 +408,7 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
         if progress:
             progress(dict(type='selection', message=reason, decision=decision))
         return _plan_result(cfg, identification, candidates, rejected, failed, unavailable, results,
-            decision, None, None, None)
+            decision, None, None, None, scheduling)
     winner = min(routes, key=lambda r: (key(r['final']), {'legacy':0, 'new':1, 'hybrid':2}[r['family']]))
     final = winner['final']
     qualified = final['metrics']['eligible']
@@ -448,11 +443,11 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
     if progress:
         progress({'type':'selection','message':winner['label']+'：'+reason, 'decision':decision})
     return _plan_result(cfg, identification, candidates, rejected, failed, unavailable, results,
-        decision, winner['initial_method'], selected['name'], final if qualified else None)
+        decision, winner['initial_method'], selected['name'], final if qualified else None, scheduling)
 
 
 def _plan_result(cfg, identification, candidates, rejected, failed, unavailable, results,
-                 decision, selected_method, initial_method, recommendation):
+                 decision, selected_method, initial_method, recommendation, scheduling):
     return {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "config_sha256": hashlib.sha256(
@@ -478,6 +473,7 @@ def _plan_result(cfg, identification, candidates, rejected, failed, unavailable,
         "initial_selected_method": initial_method,
         "selection": decision,
         "arms": results,
+        "scheduling": scheduling,
         "recommended": recommendation,
         "recommendation_status": (
             "qualified_in_configured_simulation"

@@ -89,7 +89,9 @@
 
 设置 `llm.enabled=true`。密钥读取顺序：`llm.api_key_env` 指定的环境变量 → `llm.credentials_file` 中的 `LLM_API_KEY`。保留本地 `config.json` 兼容以前配置，密钥不写入 `project.json`。
 
-启用 LLM 后三组分别调优，默认最多 3×4 次建议调用，网络失败可能发生重试。`llm.max_attempts` 默认 2，`timeout_s` 默认 60 秒，SDK 内部额外重试关闭；一次 SDK 失败还可能切换 HTTP 传输。`compare_original=false` 仅执行 selected 组，可减少调用量。LLM 只建议参数；程序使用同一模型、初始状态、随机种子和完整仿真时长重新评价。最佳参数一直保留，恶化会回滚，API 失败保留既有最佳。是否接受不取决于 LLM 自称 DONE。
+启用 LLM 后，旧版完整路线、修正 Z-N PID、Z-N PI、SIMC PI 和混合路线独立调优，适用路线默认并行，最多五组。`tuning.parallel_routes=false` 改为串行；`max_parallel_routes` 取 1～5，界面也可修改。各条路线内部按轮次依次运行，每组独立模型、配置、客户端和历史；按固定路线顺序统一选优，不让完成先后改变同分规则。`compare_original=false` 只隐藏原辨识公式参考，不减少调优路线；`include_legacy_route`、`include_corrected_legacy_route` 和 `algorithms.include` 控制参与路线。
+
+每条路线默认最多 4 个有效调优轮次，参数拒绝最多额外重试 2 次；每路线最多 12 次建议接口调用。`llm.max_attempts` 默认 2，`timeout_s` 默认 60 秒，网络失败重试与 SDK→HTTP 回退是单次建议内的传输行为，总 HTTP 次数可能更多。并行不改变每条路线的请求额度或选优标准；设备写入仍仅针对最终选中方案。LLM 只建议参数，所有接受参数均在同一模型、初始状态、种子和完整时长下复测，保留最佳；是否接受不取决于 LLM 自称 DONE。点击停止取消本地等待，不回退、不重试、不采用迟到响应。
 
 `samples_per_round` 控制发送给 LLM 的曲线抽样量，**不会缩短验证时长**。`stable_rounds` 需要连续达到评价门槛及 `average_error_threshold_c`；本版平均误差为完整任务 IAE/时长。
 

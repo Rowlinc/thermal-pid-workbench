@@ -87,6 +87,8 @@ COMMENTS = {
     'tuning.rounds': '每条新路线最多仿真多少组通过参数护栏的 LLM 建议，正整数；被护栏拒绝的请求不占有效仿真轮数。旧连续核心仍以采样评价窗口计轮，拒绝重试复用当前窗口。',
     'tuning.max_guardrail_retries_per_round': '每轮首次建议被拒绝后最多重新请求几次，非负整数；默认 2=首次加两次重试。持续拒绝则结束该路线并保留最佳，继续其他路线。不会重新辨识或自动放宽限制。',
     'tuning.max_llm_requests_per_route': '每条路线最多调用多少次建议接口（含超限重试），正整数，默认 12；整个任务上限为参与路线数×本项。网络层重试另受 llm.max_attempts 限制；这不是 token 或费用上限。',
+    'tuning.parallel_routes': 'true=各条离线调优路线并行运行，各自使用独立控制器、LLM客户端和旧核心配置；false=依次运行。仅并行规划，use最终仍只写入一组获选参数。',
+    'tuning.max_parallel_routes': '最大同时运行路线数，1到5，默认5；服务限流或自定义模型不能并行时可降低或关闭并行。每条路线内按反馈依次调优，轮数和请求预算不变。',
     'tuning.samples_per_round': '发送给 LLM 的响应曲线抽样量，至少 5 点；这是抽样目标，实际数量可能略多，不会缩短完整仿真。',
     'tuning.stable_rounds': '连续多少轮满足评价要求及平均误差条件后停止；正整数。',
     'tuning.average_error_threshold_c': '提前停止使用的完整任务平均绝对温差阈值，单位 °C，计算为 IAE/仿真时长；还必须满足全部评价门槛。',

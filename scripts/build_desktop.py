@@ -43,12 +43,12 @@ def main():
     subprocess.run(command,cwd=ROOT,check=True)
     executable=output/(args.name+'.exe' if sys.platform=='win32' else args.name)
     checksum=hashlib.sha256(executable.read_bytes()).hexdigest()
-    manifest=dict(version='0.4.3',file=executable.name,sha256=checksum,size_bytes=executable.stat().st_size,
+    manifest=dict(version='0.4.4',file=executable.name,sha256=checksum,size_bytes=executable.stat().st_size,
                   private_configuration_bundled=False,local_results_bundled=False)
     (output/'build-info.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
     guide='双击 PIDWorkbench.exe。\n首次可选择温度、压力、流量或液位示例，然后修改模型与任务。\n结果直接保存在应用运行历史中。\n本机数据：%LOCALAPPDATA%\\ThermalPIDWorkbench\n需要 Windows Edge WebView2 Runtime；Simulink 另需 MATLAB 和兼容 Engine。\nAPI 密钥通过界面填写，安装包不含任何用户密钥。\n完整说明见 DESKTOP.md。\n'
     (output/'开始使用.txt').write_text(guide,encoding='utf-8-sig')
-    archive=output/'PIDWorkbench-0.4.3-Windows-x64.zip'
+    archive=output/'PIDWorkbench-0.4.4-Windows-x64.zip'
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as handle:
         for path in (executable,output/'build-info.json',output/'开始使用.txt',ROOT/'LICENSE',ROOT/'NOTICE',ROOT/'docs'/'DESKTOP.md'):
             handle.write(path,path.name)

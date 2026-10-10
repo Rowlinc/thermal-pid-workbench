@@ -654,6 +654,18 @@
           "default": 4,
           "description": "每条新路线最多仿真多少组通过参数护栏的 LLM 建议，正整数；被护栏拒绝的请求不占有效仿真轮数。旧连续核心仍以采样评价窗口计轮，拒绝重试复用当前窗口。"
         },
+        "parallel_routes": {
+          "type": "boolean",
+          "default": true,
+          "description": "true=各条离线调优路线并行运行，各自使用独立控制器、LLM客户端和旧核心配置；false=依次运行。仅并行规划，use最终仍只写入一组获选参数。"
+        },
+        "max_parallel_routes": {
+          "type": "integer",
+          "default": 5,
+          "description": "最大同时运行路线数，1到5，默认5；服务限流或自定义模型不能并行时可降低或关闭并行。每条路线内按反馈依次调优，轮数和请求预算不变。",
+          "minimum": 1,
+          "maximum": 5
+        },
         "max_guardrail_retries_per_round": {
           "type": "integer",
           "default": 2,

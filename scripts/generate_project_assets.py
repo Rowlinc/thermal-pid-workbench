@@ -96,6 +96,7 @@ def main():
         "ZN_PI",
         "SIMC_PI",
     ]
+    definition['properties']['tuning']['properties']['max_parallel_routes'].update(minimum=1, maximum=5)
     for path in (
         "actuator.max_rate_per_s",
         "algorithms.simc_lambda_s",

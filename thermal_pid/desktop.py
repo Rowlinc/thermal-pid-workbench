@@ -63,7 +63,7 @@ def main(argv=None):
                     hidden=False)
             dialogs._window=window
             def closing():
-                active=[j for j in server.manager.jobs.values() if j.status=='running' or getattr(j,'worker',None) and j.worker.is_alive()]
+                active=[j for j in server.manager.jobs.values() if j.status in ('running','stopping') or getattr(j,'worker',None) and j.worker.is_alive()]
                 if active:
                     for job in active:server.manager.control(job.id,'stop')
                     window.evaluate_js("window.appNotice && window.appNotice('已请求停止。请等待运行结束后再关闭应用，以便完成审计或恢复。', true)")
@@ -89,7 +89,7 @@ def main(argv=None):
         for job in server.manager.jobs.values():
             if job.status=='running':server.manager.control(job.id,'stop')
         # Finish outstanding deployment recovery before exiting a browser server.
-        while any(j.status=='running' for j in server.manager.jobs.values()):
+        while any(j.status in ('running','stopping') or getattr(j,'worker',None) and j.worker.is_alive() for j in server.manager.jobs.values()):
             threading.Event().wait(0.2)
     finally:server.close()
     return 0

@@ -86,6 +86,8 @@ DEFAULTS = {
     },
     "tuning": {
         "rounds": 4,
+        "parallel_routes": True,
+        "max_parallel_routes": 5,
         "max_guardrail_retries_per_round": 2,
         "max_llm_requests_per_route": 12,
         "samples_per_round": 60,
@@ -283,6 +285,7 @@ def validate(cfg):
         raise ConfigError("evaluation.tail_fraction must be <=1")
     for path in (
         "tuning.rounds",
+        "tuning.max_parallel_routes",
         "tuning.max_llm_requests_per_route",
         "llm.max_attempts",
         "llm.max_output_tokens",
@@ -293,6 +296,8 @@ def validate(cfg):
     ):
         number(path, positive=True, integer=True)
     number('tuning.max_guardrail_retries_per_round', minimum=0, integer=True)
+    if cfg['tuning']['max_parallel_routes'] > 5:
+        raise ConfigError('tuning.max_parallel_routes must be <=5')
     number("simulation.seed", integer=True)
     if cfg["device"]["port"] > 65535:
         raise ConfigError("device.port must be <=65535")
@@ -314,6 +319,7 @@ def validate(cfg):
         "llm.enabled",
         "llm.json_output",
         "tuning.compare_original",
+        "tuning.parallel_routes",
         "tuning.include_legacy_route",
         "tuning.include_corrected_legacy_route",
         "device.write_enabled",

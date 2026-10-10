@@ -53,6 +53,7 @@ LABELS = {
     'time_unit':'数据时间单位', 'time':'时间列', 'temperature':'温度列', 'output':'输出列',
     'rounds':'每组最大调优轮数', 'compare_original':'显示原辨识公式参考', 'include_corrected_legacy_route':'混合路线：修正初值＋旧版调优', 'include':'参与候选',
     'max_guardrail_retries_per_round':'每轮护栏拒绝后的重试次数', 'max_llm_requests_per_route':'每条路线建议请求总上限',
+    'parallel_routes':'并行运行离线调优路线', 'max_parallel_routes':'最多同时运行路线数',
     'simc_lambda_s':'SIMC 响应时间 λ（秒）', 'enabled':'启用大模型',
     'provider':'API 协议', 'base_url':'服务地址', 'model':'模型名称',
     'credentials_file':'密钥文件', 'api_key_env':'密钥环境变量', 'timeout_s':'通信超时（秒）',
