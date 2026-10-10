@@ -3,6 +3,9 @@
 Download the Windows portable ZIP from [GitHub Releases](https://github.com/Rowlinc/thermal-pid-workbench/releases/latest), extract it and open the app. Gitee mirrors the source and version tags; use the same link for binaries.
 
 Version 0.4 adds a visual Windows desktop application for single-loop temperature, pressure, flow, level, speed and custom process variables. Run `PIDWorkbench.exe`, or install `.[full,desktop]` in a virtual environment and run `desktop_app.py`.
+
+For EXE usage instructions, read the [PID auto-tuning and LLM optimization user guide (Chinese)](docs/PID自动整定与LLM优化系统使用说明.md) before configuring and running the app.
+
 Runs are viewed directly inside the app and retained in persistent history, including configuration, response curves, PID, metrics, guardrails and LLM rounds. HTML/CSV/JSON are optional exports.
 Choose **Change save location** in the sidebar to use another drive. Copy saved settings, credentials, uploads and history to an empty folder, or uncheck copying to open a fresh/existing workspace. Switching is immediate and remembered; old data is never deleted. Internal absolute references are updated; external models and explicitly configured output paths stay unchanged. Active/stopping jobs block switching. `--workspace PATH` overrides the remembered folder; browser mode supports typing a path. A small `%LOCALAPPDATA%\ThermalPIDWorkbench.settings.json` remembers the folder separately from old records; preserve this file. EXE extraction still uses the system temporary directory.
 Settings, CSV uploads/column mapping, model parameters, custom Python models, LLM API credentials, device adapters and original serial/Simulink workflows are available visually.
