@@ -24,11 +24,14 @@ RESULT_FILES = {'report.html', 'summary.json', 'pid.json', 'metrics.csv',
                 'output.svg', 'device_audit.json', 'legacy_result.json', 'events.json', 'samples.csv'}
 
 class DesktopServer:
-    def __init__(self, workspace, port=0, native_bridge=False):
+    def __init__(self, workspace, port=0, native_bridge=False, workspace_preferences=None, log_handle=None):
         self.state = DesktopState(workspace)
         self.manager = JobManager(self.state)
         self.token = secrets.token_urlsafe(32)
         self.native_bridge = native_bridge
+        self.workspace_preferences = workspace_preferences
+        self.storage_lock = threading.RLock()
+        self.log_handle = log_handle
         app = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args): pass
@@ -125,6 +128,11 @@ class DesktopServer:
                 except Exception as exc:self.error(exc)
 
             def do_POST(self):
+                # Switching storage cannot race a task start or settings/upload writes.
+                with app.storage_lock:
+                    self.handle_POST()
+
+            def handle_POST(self):
                 try:
                     self.trusted(mutation=True)
                     length=int(self.headers.get('Content-Length','0'))
@@ -137,6 +145,24 @@ class DesktopServer:
                         return self.send(app.state.upload_csv(name,raw) if route.endswith('csv') else
                                          app.state.upload_model(name,raw,params.get('trusted',['false'])[0]=='true'))
                     body=json.loads(raw or b'{}')
+                    if route=='/api/workspace':
+                        with app.manager.lock:
+                            if any(j.status in ('running','stopping') or getattr(j,'worker',None) and j.worker.is_alive() for j in app.manager.jobs.values()):
+                                raise ValueError('请先停止任务并等待结束，再切换保存位置。')
+                            from .workspace import prepare_workspace
+                            old=str(app.state.root)
+                            new=prepare_workspace(app.state,body.get('directory'),body.get('copy_existing',True),app.workspace_preferences)
+                            if new is not app.state:
+                                if app.log_handle is not None:
+                                    log=(new.root/'application.log').open('a',encoding='utf-8',buffering=1)
+                                    if sys.stdout is app.log_handle:sys.stdout=log
+                                    if sys.stderr is app.log_handle:sys.stderr=log
+                                    app.log_handle.close()
+                                    app.log_handle=log
+                                app.state=new
+                                app.manager=JobManager(new)
+                            return self.send(dict(state=app.state.snapshot(),previous_workspace=old,
+                                copied=body.get('copy_existing',True),old_data_deleted=False))
                     if route=='/api/settings':return self.send(app.state.save(body))
                     if route=='/api/diagnostics':
                         with app.manager.lock:

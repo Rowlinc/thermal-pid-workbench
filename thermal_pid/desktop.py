@@ -33,21 +33,26 @@ class NativeDialogs:
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description='PID Workbench visual desktop app')
-    parser.add_argument('--workspace',type=Path,default=default_workspace())
+    parser.add_argument('--workspace',type=Path,help='explicit data directory, overrides remembered location')
     parser.add_argument('--browser',action='store_true',help='open in system browser')
     parser.add_argument('--serve',action='store_true',help='serve without opening a window')
     parser.add_argument('--port',type=int,default=0)
     parser.add_argument('--port-file',type=Path,help='write local address for integration tests')
     parser.add_argument('--self-test',type=Path,help='test native renderer, write diagnostics and close')
     args=parser.parse_args(argv)
+    from .workspace import selected_workspace
+    location_file=(args.workspace/'workspace-location.json' if args.workspace else
+        default_workspace().parent/'ThermalPIDWorkbench.settings.json')
+    args.workspace=args.workspace or selected_workspace(default_workspace(),location_file)
     args.workspace.mkdir(parents=True,exist_ok=True)
     # Windowed PyInstaller executables have no stdout; upstream logging still needs it.
+    handle=None
     if sys.stdout is None or sys.stderr is None:
         handle=(args.workspace/'application.log').open('a',encoding='utf-8',buffering=1)
         if sys.stdout is None:sys.stdout=handle
         if sys.stderr is None:sys.stderr=handle
     from .desktop_server import DesktopServer
-    server=DesktopServer(args.workspace,args.port,native_bridge=not (args.browser or args.serve))
+    server=DesktopServer(args.workspace,args.port,native_bridge=not (args.browser or args.serve),workspace_preferences=location_file,log_handle=handle)
     server.start()
     if args.port_file:args.port_file.write_text(server.url,encoding='utf-8')
     try:

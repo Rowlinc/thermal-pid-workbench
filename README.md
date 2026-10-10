@@ -31,6 +31,7 @@ python -m venv .venv
 
 源码用户可用 `desktop_app.py --browser` 在浏览器中打开相同界面。
 应用数据在 `%LOCALAPPDATA%\ThermalPIDWorkbench`；源码目录的私有配置不会被自动覆盖。
+不想占用 C 盘时，点击左下角“更改保存位置…”，选择例如 `E:\PIDWorkbenchData`，再点击“应用保存位置”。默认复制配置、密钥、导入数据、方案和历史到空目录，切换立即生效，下次启动记住；取消复制可使用空目录或打开已有工作台目录。复制会修正数据目录内的绝对引用，旧目录保留，确认新历史可用后自行清理旧副本。运行或正在停止时不可切换。`--workspace PATH` 仍可覆盖记住的位置；浏览器模式可手填路径。外部自定义模型及用户另设的绝对输出路径保持原配置，需自行调整；C 盘只需保留很小的位置设置文件 `%LOCALAPPDATA%\ThermalPIDWorkbench.settings.json`，不要把它当旧记录删除。EXE 临时解包仍使用系统临时目录。
 原有配置可通过界面导入。安装包不包含用户密钥、历史数据和 `results/`。
 
 详细输入、所有工作流和重新打包步骤见 [应用使用说明](docs/DESKTOP.md)；原项目功能保留说明见 [兼容性说明](docs/UPSTREAM_COMPATIBILITY.md)。

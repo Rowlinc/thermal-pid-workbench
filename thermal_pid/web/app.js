@@ -92,6 +92,7 @@ const words = {
   "original-zn": "原辨识 Z-N",
 };
 const statusWords = {
+  idle: "尚未运行",
   running: "运行中",
   stopping: "正在停止",
   completed: "已完成",
@@ -182,6 +183,7 @@ function renderForms() {
     ? "已配置 · 不显示密钥"
     : "未配置";
   $("#workspace-info").textContent = state.workspace;
+  $("#workspace-path").value = state.workspace;
   $("#profiles").innerHTML = state.profiles
     .map((p) => `<option>${esc(p)}</option>`)
     .join("");
@@ -328,7 +330,7 @@ function drawJob(j) {
   const selected = j.metrics.find((m) => m.name === "selected"),
     unit = j.process?.unit || state.project.process.unit;
   $("#result-summary").innerHTML = [
-    ["最终选中路线", j.selection?.selected_label || j.selected_method || "原流程／旧记录"],
+    ["最终选中路线", j.selection?.selected_label || j.selected_method || (j.workflow === "project" ? active ? "等待全部路线完成" : "尚未选择" : "原流程／旧记录")],
     [
       "最终建议",
       j.final_pid ? pidText(j.final_pid) : active ? "运行中…" : "无合格建议",
@@ -917,6 +919,38 @@ for (const action of ["pause", "resume", "stop"])
       drawJob(job);
     });
 $("#workspace").onclick = () => safe(() => api("/api/open-folder", {}));
+$("#workspace-settings").onclick = () => { go("help"); $("#workspace-path").scrollIntoView({behavior:"smooth",block:"center"}); };
+$("#pick-workspace").onclick = () => safe(async () => {
+  if (!window.pywebview?.api) throw new Error("浏览器模式请在输入框填写完整文件夹路径；桌面应用支持选择文件夹。");
+  const folder = await window.pywebview.api.pick_folder();
+  if (folder) $("#workspace-path").value = folder;
+});
+$("#apply-workspace").onclick = () => safe(async () => {
+  const button = $("#apply-workspace");
+  button.disabled = true;
+  button.textContent = "正在准备新目录…";
+  try {
+    const directory = $("#workspace-path").value.trim(), copy = $("#copy-workspace").checked;
+    if (job && ["running","stopping"].includes(job.status)) throw new Error("请先停止任务并等待结束，再切换保存位置。");
+    if (copy) await save();
+    const result = await api("/api/workspace", {directory,copy_existing:copy});
+    state = result.state;
+    clearInterval(polling);
+    job = null;
+    renderForms();
+    drawJob({id:"保存位置已切换",status:"idle",workflow:"project",elapsed_s:0,
+      metrics:[],series:{},events:[],process:state.project.process,config:state.project,
+      experiment_name:state.project.name,result_available:false});
+    $("#chart").innerHTML = '<p class="empty">请开始运行或从历史记录选择结果</p>';
+    $("#legend").innerHTML = "";
+    $("#run").disabled = false;
+    notice("保存位置已切换为 " + state.workspace + "。旧目录保留；确认历史记录可用后可自行清理旧副本。");
+    await loadHistory();
+  } finally {
+    button.disabled = false;
+    button.textContent = "应用保存位置";
+  }
+});
 $("#refresh-history").onclick = () => safe(loadHistory);
 $("#field-search").oninput = renderAllFields;
 $("#csv-file").onchange = (e) => {

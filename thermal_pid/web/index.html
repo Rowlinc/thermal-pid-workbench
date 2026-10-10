@@ -31,6 +31,7 @@
         <span class="live-dot"></span> 本机运行 · 结果独立保存<small
           >LLM 开启时通过 API 联网</small
         ><button id="workspace" class="subtle">打开数据文件夹 ↗</button>
+        <button id="workspace-settings" class="subtle">更改保存位置…</button>
       </div>
     </aside>
     <div class="app">
@@ -464,6 +465,11 @@
             </p>
             <h3>保存位置</h3>
             <p id="workspace-info"></p>
+            <label class="field"><span>新的数据文件夹</span><input id="workspace-path" type="text" placeholder="例如 E:\PIDWorkbenchData" /></label>
+            <button id="pick-workspace" class="secondary">选择文件夹…</button>
+            <label class="field"><span><input id="copy-workspace" type="checkbox" checked /> 复制当前配置、密钥、数据和历史记录到新目录</span></label>
+            <button id="apply-workspace" class="primary">应用保存位置</button>
+            <p>复制需要空目录；也可以取消复制，使用新的空目录或打开已有的数据目录。切换立即生效，下次正常启动会记住。旧目录不会自动删除；确认新目录中的历史可用后，可自行清理旧副本。运行或正在停止时不能切换。</p>
             <p>
               每次结果独立保存；配置和 CSV 保存在本机；API
               密钥不会导出到方案或公共配置。需要 API
