@@ -94,7 +94,10 @@ def write_dashboard(path,report,traces):
     for name,item in report["initialization"]["candidate_results"].items():
         if "gains" not in item: continue
         requested=" / ".join(f'{item["requested_gains"][k]:.5g}' for k in ("Kp","Ki","Kd"))
-        applied=" / ".join(f'{item["gains"][k]:.5g}' for k in ("Kp","Ki","Kd"))
+        applied=" / ".join(f'{item["gains"][k]:.5g}' for k in ("Kp","Ki","Kd")) if item.get('gains') else '拒绝整组（未仿真）'
+        if not item.get('metrics'):
+            parts.append(f'<tr><td>{name}</td><td>{requested}</td><td>{applied}</td><td>—</td><td>—</td><td>{html.escape(item.get("error", "未仿真"))}</td></tr>')
+            continue
         eligible="是" if item["selection"]["eligible"] else "否"
         parts.append(f'<tr><td>{name}</td><td>{requested}</td><td>{applied}</td><td>{item["metrics"]["overshoot_pct"]:.3f}</td><td>{item["metrics"]["iae_c_s"]:.3f}</td><td>{eligible}</td></tr>')
     parts.append('</table></section>')
@@ -241,7 +244,7 @@ def main(argv=None):
                        "guardrail_notes":notes,"status":"original_id_on_same_synthetic_data"}
         zn=initialization["candidate_results"]["ZN_PID"]
         corrected_pid=({"p":zn["gains"]["Kp"],"i":zn["gains"]["Ki"],"d":zn["gains"]["Kd"]}
-                       if "gains" in zn else dict(DEFAULT_CURRENT_PID))
+                       if zn.get("gains") else dict(DEFAULT_CURRENT_PID))
         starts={"original_zn":reference["selected_pid"],"corrected_zn":corrected_pid,**starts}
     def tuner_factory(env):
         if args.tuner=="mock": return RecordedTuner(MockTuner(env),"mock")

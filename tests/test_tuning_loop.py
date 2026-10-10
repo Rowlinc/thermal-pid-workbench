@@ -187,13 +187,13 @@ class FlattenControllerResultTests(unittest.TestCase):
         self.assertEqual(out["status"], "TUNING")
         self.assertIsNotNone(primary)
 
-    def test_missing_pid_fields_use_current_pid(self):
+    def test_missing_pid_fields_remain_missing_for_rejection(self):
         # controller_1 is non-empty but missing i/d -> fall back to current_pid
         result = {"controller_1": {"p": 9.0}}
         out, _, _ = flatten_controller_result(result, {"p": 1.5, "i": 0.3, "d": 0.01})
         self.assertEqual(out["p"], 9.0)
-        self.assertEqual(out["i"], 0.3)
-        self.assertEqual(out["d"], 0.01)
+        self.assertIsNone(out["i"])
+        self.assertIsNone(out["d"])
 
     def test_controller_2_returned_as_secondary(self):
         result = {

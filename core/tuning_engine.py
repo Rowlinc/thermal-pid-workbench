@@ -14,6 +14,7 @@ from sim.runtime import EVENT_SAMPLE, QueueEventSink, publish_event
 from pid_safety import (
     adapt_simulink_pid_limits,
     apply_pid_guardrails,
+    check_pid_guardrails,
     build_fallback_suggestion,
     get_pid_limits,
 )
@@ -77,6 +78,7 @@ def _attach_pid_guardrail_context(
     context = dict(prompt_context or {})
     context["pid_limits"] = _pid_limits_for_prompt(pid_limits)
     context["pid_limits_are_runtime_enforced"] = True
+    context["guardrail_action"] = 'reject_entire_proposal'
     return context
 
 def run_tuning_engine(
@@ -90,6 +92,8 @@ def run_tuning_engine(
     start_time: float = 0.0,
     current_stream_round: Optional[list] = None,
     require_verified_done: bool = False,
+    guardrail_retries_per_round: int = 2,
+    max_llm_requests: Optional[int] = None,
 ) -> Dict[str, Any]:
     if current_stream_round is None:
         current_stream_round = [0]
@@ -120,6 +124,9 @@ def run_tuning_engine(
         pid_limits = base_pid_limits
 
     prompt_context = _attach_pid_guardrail_context(prompt_context, pid_limits)
+    llm_requests = 0
+    max_llm_requests = (CONFIG['MAX_TUNING_ROUNDS'] * (guardrail_retries_per_round + 1)
+                        if max_llm_requests is None else max_llm_requests)
 
     try:
         while session.round_num < CONFIG["MAX_TUNING_ROUNDS"]:
@@ -308,27 +315,61 @@ def run_tuning_engine(
                 })
                 prompt_context = _attach_pid_guardrail_context(prompt_context, pid_limits)
             
-            result = tuner.analyze(
-                prompt_data,
-                history_text,
-                tuning_mode=llm_mode,
-                prompt_context=prompt_context,
-            )
+            decision = None
+            for retry in range(guardrail_retries_per_round + 1):
+                if llm_requests >= max_llm_requests:
+                    session.completed_reason = 'request_budget_exhausted'
+                    break
+                llm_requests += 1
+                result = tuner.analyze(
+                    prompt_data,
+                    history_text,
+                    tuning_mode=llm_mode,
+                    prompt_context=prompt_context,
+                )
 
-            if controller is not None and getattr(controller, "should_stop", False):
-                session.completed_reason = "stopped_by_user"
-                _console(emit_console, "\n[INFO] Tuning stopped by user.")
-                _emit_lifecycle(event_sink, start_time, "stopped", "Tuning stopped by user.")
+                if controller is not None and getattr(controller, "should_stop", False):
+                    session.completed_reason = "stopped_by_user"
+                    _console(emit_console, "\n[INFO] Tuning stopped by user.")
+                    _emit_lifecycle(event_sink, start_time, "stopped", "Tuning stopped by user.")
+                    break
+
+                if result is not None and not isinstance(result, dict):
+                    result = dict(p=None, i=None, d=None)
+                if not result:
+                    _console(emit_console, "[WARN] LLM unavailable, using fallback.")
+                    _emit_lifecycle(event_sink, start_time, "fallback", f"LLM unavailable at round {evaluation.round_index}; using fallback.")
+                    result = build_fallback_suggestion(evaluation.current_pid, evaluation.metrics)
+
+                result, primary_result, secondary_result = flatten_controller_result(result, evaluation.current_pid)
+                safe_secondary = None
+                secondary_notes = []
+                if isinstance(secondary_result, dict):
+                    sec_curr = dict(session.buffer.secondary_pid) if session.buffer.secondary_pid is not None else {"p": 0.0, "i": 0.0, "d": 0.0}
+                    secondary_check = check_pid_guardrails(sec_curr, secondary_result, limits=pid_limits)
+                    safe_secondary = secondary_check.pid
+                    secondary_notes = ['Controller 2: ' + note for note in secondary_check.notes]
+                decision = finalize_decision(session, evaluation, result, limits=pid_limits,
+                    extra_guardrail_notes=secondary_notes)
+                publish_decision(event_sink, evaluation.round_index, decision)
+                if not decision.accepted:
+                    session.stable_rounds = 0
+                    _console(emit_console, '[Guardrail] Proposal rejected; no PID applied. ' + '; '.join(decision.guardrail_notes))
+                    prompt_context['last_guardrail_rejection'] = dict(requested_pid=decision.requested_pid,
+                        secondary_requested_pid=secondary_result, reasons=decision.guardrail_notes,
+                        instruction='Retain current PID. Submit a complete proposal within the enforced limits.')
+                    continue
+                prompt_context.pop('last_guardrail_rejection', None)
                 break
 
-            if not result:
-                _console(emit_console, "[WARN] LLM unavailable, using fallback.")
-                _emit_lifecycle(event_sink, start_time, "fallback", f"LLM unavailable at round {evaluation.round_index}; using fallback.")
-                result = build_fallback_suggestion(evaluation.current_pid, evaluation.metrics)
-
-            result, primary_result, secondary_result = flatten_controller_result(result, evaluation.current_pid)
-            decision = finalize_decision(session, evaluation, result, limits=pid_limits)
-            publish_decision(event_sink, evaluation.round_index, decision)
+            if decision is None or not decision.accepted:
+                if session.completed_reason == 'stopped_by_user':
+                    break
+                if session.completed_reason != 'request_budget_exhausted':
+                    session.completed_reason = 'guardrail_retry_limit'
+                _emit_lifecycle(event_sink, start_time, 'completed',
+                    'Suggestion retry/request limit reached; retaining current/best PID.')
+                break
 
             if require_verified_done and decision.completed_reason == "llm_marked_done":
                 from pid_safety import pid_equals
@@ -349,13 +390,6 @@ def run_tuning_engine(
                 break
 
             safe_primary = decision.safe_pid
-            safe_secondary = None
-            if isinstance(secondary_result, dict):
-                sec_curr = dict(session.buffer.secondary_pid) if session.buffer.secondary_pid is not None else {"p": 0.0, "i": 0.0, "d": 0.0}
-                # Use the same limits as primary controller for secondary controller
-                safe_secondary, sec_notes = apply_pid_guardrails(sec_curr, secondary_result, limits=pid_limits)
-                if sec_notes:
-                    _console(emit_console, f"[Guardrail] Controller 2: {'; '.join(sec_notes)}")
 
             env.apply_pid(safe_primary, safe_secondary)
             actual_primary, actual_secondary = env.get_current_pid()
@@ -384,6 +418,8 @@ def run_tuning_engine(
 
     return {
         "elapsed_sec": time.time() - start_time,
+        "llm_requests": llm_requests,
+        "max_llm_requests": max_llm_requests,
         "best_result": session.best_result,
         "history": list(session.history.history),
         **build_tuning_result(

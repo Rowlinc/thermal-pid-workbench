@@ -10,19 +10,20 @@ from core.buffer import AdvancedDataBuffer
 from core.offline_evaluation import evaluate_step
 from sim.model import HeatingSimulator, CONTROL_INTERVAL
 from system_id import system_identify, tuning_candidates, read_from_file
-from pid_safety import apply_pid_guardrails, get_pid_limits
+from pid_safety import apply_pid_guardrails, check_pid_guardrails, PIDRejected, get_pid_limits
 from core.config import CONFIG, ensure_utf8_console
 
 
 DEFAULT_CURRENT_PID = {"p": 1.0, "i": 0.1, "d": 0.05}
 
 
-def checked_gains(gains, current_pid, limits):
+def checked_gains(gains, current_pid, limits, *, limit_increase=False):
     """All algorithm sources share pid_safety's deterministic gain constraints."""
-    candidate = {key: float(gains[label]) for key, label in (("p","Kp"),("i","Ki"),("d","Kd"))}
-    if not all(math.isfinite(v) for v in candidate.values()):
-        raise ValueError("nonfinite PID suggestion rejected before simulation")
-    safe, notes = apply_pid_guardrails(current_pid, candidate, limits=limits)
+    candidate = {key: gains[label] for key, label in (("p","Kp"),("i","Ki"),("d","Kd"))}
+    decision = check_pid_guardrails(current_pid, candidate, limits=limits, limit_increase=limit_increase)
+    if not decision.accepted:
+        raise PIDRejected(decision)
+    safe, notes = decision.pid, decision.notes
     kp, ki, kd = safe["p"], safe["i"], safe["d"]
     applied = {**gains, "controller_form": "parallel", "Kp": kp, "Ki": ki, "Kd": kd,
                "Ti": kp/ki if kp != 0 and ki != 0 else None,
@@ -93,23 +94,29 @@ def heating_probe():
 
 
 def compare(plant_factory, candidates, setpoint, dt, duration, current_pid=None, limits=None,
-            controller_kind="thermal"):
+            controller_kind="thermal", *, limit_increase=False):
     if controller_kind not in ("thermal", "native"):
         raise ValueError("controller_kind must be thermal or native")
     limits = get_pid_limits("python_sim") if limits is None else limits
     baseline = dict(DEFAULT_CURRENT_PID if current_pid is None else current_pid)
     if set(baseline) != {"p", "i", "d"} or not all(math.isfinite(v) and v >= 0 for v in baseline.values()):
         raise ValueError("current PID must contain finite nonnegative p/i/d")
-    baseline, baseline_notes = apply_pid_guardrails(baseline, baseline, limits=limits)
+    baseline_check = check_pid_guardrails(baseline, baseline, limits=limits, limit_increase=False)
+    if not baseline_check.accepted:
+        raise PIDRejected(baseline_check)
+    baseline, baseline_notes = baseline_check.pid, []
     results, traces = {}, {}
     for name, requested in candidates.items():
         if "error" in requested:
             results[name] = {"error": requested["error"]}
             continue
         try:
-            gains, notes = checked_gains(requested, baseline, limits)
+            gains, notes = checked_gains(requested, baseline, limits,
+                limit_increase=limit_increase or name == 'LLM')
         except (ValueError, TypeError, KeyError) as exc:
-            results[name] = {"error": str(exc), "safety_status": "rejected"}
+            results[name] = {"error": str(exc), "safety_status": "rejected",
+                "status": 'REJECTED_GUARDRAIL', "requested_gains": requested,
+                "gains": None, "guardrail_notes": exc.decision.notes if isinstance(exc, PIDRejected) else [str(exc)]}
             continue
         # No plant construction or update occurs until the suggestion has been checked.
         plant = plant_factory()
@@ -139,7 +146,7 @@ def compare(plant_factory, candidates, setpoint, dt, duration, current_pid=None,
         results[name] = {"requested_gains": requested, "gains": gains, "metrics": metrics,
                          "guardrail_notes": notes, "baseline_pid": baseline,
                          "baseline_guardrail_notes": baseline_notes,
-                         "safety_status": "adjusted" if notes else "passed"}
+                         "safety_status": "passed"}
         traces[name] = rows
     return results, traces
 

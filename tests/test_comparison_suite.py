@@ -18,15 +18,15 @@ def test_suite_records_every_arm_and_preserves_failed_metrics(tmp_path, monkeypa
     folder = next((tmp_path / 'results/comparison_suite').iterdir())
     summary = json.loads((folder / 'suite.json').read_text(encoding='utf-8'))
     assert summary['completed_scenarios'] == 1
-    assert len(summary['rows']) == 6
-    assert summary['selection_counts'] == {'legacy':0,'new':0,'hybrid':0,'unqualified':0,'not_comparable':1}
+    assert len(summary['rows']) == 2
+    assert summary['selection_counts'] == {'legacy':0,'new':0,'hybrid':0,'unqualified':1,'not_comparable':0}
     text=(folder/'comparison.md').read_text(encoding='utf-8')
-    assert 'legacy_route' in text and '未形成完整对照' in text
+    assert 'legacy_route' in text and '未达标' in text
     assert '每个场景内三组' not in text
     rows = {r['arm']:r for r in summary['rows']}
-    assert rows['original_zn']['eligible'] is False
-    assert rows['selected']['eligible'] is True
-    assert rows['selected']['legacy_status']=='llm_disabled'
+    assert rows['selected']['eligible'] is False
+    assert rows['selected']['legacy_status']=='unavailable'
+    assert {r['name'] for r in summary['candidate_failures']} >= {'ZN_PID', 'ZN_PI'}
     assert rows['selected']['strictly_improved_vs_legacy'] is False
     assert rows['simc_route']['family']=='new'
     assert all(not r['llm_enabled'] and r['llm_history_records'] == 0 for r in summary['rows'])

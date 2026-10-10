@@ -150,6 +150,7 @@ def _build_pid_guardrail_section(
         "## PID Guardrails",
         "- The application enforces these PID bounds before sending values to the plant.",
         "- Choose PID values inside these bounds; do not rely on the application to clip unsafe output.",
+        "- An invalid or out-of-range proposal is rejected as a whole, without clipping. Use rejection feedback to submit a complete valid proposal; rejected DONE does not finish tuning.",
     ]
     for key in ("p", "i", "d"):
         raw_gain_limits = limits.get(key)

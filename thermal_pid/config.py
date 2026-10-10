@@ -86,6 +86,8 @@ DEFAULTS = {
     },
     "tuning": {
         "rounds": 4,
+        "max_guardrail_retries_per_round": 2,
+        "max_llm_requests_per_route": 12,
         "samples_per_round": 60,
         "stable_rounds": 2,
         "average_error_threshold_c": 1.2,
@@ -281,6 +283,7 @@ def validate(cfg):
         raise ConfigError("evaluation.tail_fraction must be <=1")
     for path in (
         "tuning.rounds",
+        "tuning.max_llm_requests_per_route",
         "llm.max_attempts",
         "llm.max_output_tokens",
         "tuning.samples_per_round",
@@ -289,6 +292,7 @@ def validate(cfg):
         "device.baud",
     ):
         number(path, positive=True, integer=True)
+    number('tuning.max_guardrail_retries_per_round', minimum=0, integer=True)
     number("simulation.seed", integer=True)
     if cfg["device"]["port"] > 65535:
         raise ConfigError("device.port must be <=65535")

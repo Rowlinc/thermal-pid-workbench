@@ -23,9 +23,9 @@ def report_link(report, directory):
         return Path(report).resolve().as_uri()
 
 
-def save_summary(directory, rows, failures, planned):
-    payload = {"planned_scenarios": planned, "completed_scenarios": len({r['scenario'] for r in rows}),
-               "rows": rows, "execution_failures": failures}
+def save_summary(directory, rows, failures, planned, candidate_failures=None, completed_names=None):
+    payload = {"planned_scenarios": planned, "completed_scenarios": len(set(completed_names) if completed_names is not None else {r['scenario'] for r in rows}),
+               "rows": rows, "execution_failures": failures, "candidate_failures": candidate_failures or []}
     (directory / "suite.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if rows:
         with (directory / "comparison.csv").open("w", encoding="utf-8-sig", newline="") as handle:
@@ -33,6 +33,7 @@ def save_summary(directory, rows, failures, planned):
             writer.writeheader(); writer.writerows(rows)
     completed = payload['completed_scenarios']
     lines = ["# 多场景完整调优路线对比", "", f"计划 {planned} 个场景，已完成 {completed} 个场景，执行失败 {len(failures)} 个。", "",
+        "当前各路线统一使用整组拒绝护栏。护栏拒绝不代表算法计算错误或控制效果差；未进行仿真时没有性能指标。候选拒绝与仿真错误见 suite.json 的 candidate_failures。旧核心也使用当前护栏，不能把本版结果称为未修改原项目的独立运行。", "",
         "legacy_route 保留原项目连续调优核心，在共用对象和控制器上运行；不是原项目原生温控模拟器的独立实测。original_zn 只是不经 LLM 调优的原辨识公式参考。selected 是最终胜出路线的别名，不再独立调用 LLM。", "",
         "每个场景内对象、任务、执行器、评价门槛、LLM 模型与每路线最大轮数相同。新旧初始化和调优策略不同，这是比较对象本身。先判断达标，再按该场景的 accuracy/smooth/speed 优先级比较。", "",
         "## 各场景最终选择", "", "| 场景 | 优先级 | LLM | 最终路线 | 达标 | 旧版覆盖状态 | 严格优于完整旧版 |", "|---|---|---|---|---|---|---|"]
@@ -100,7 +101,7 @@ def main(argv=None):
         parser.error('no scenario configurations found')
     directory = create_run_directory(ROOT / 'results/comparison_suite')
     print(f'Suite directory: {directory}', flush=True)
-    rows, failures = [], []
+    rows, failures, candidate_failures, completed_names = [], [], [], []
     for index, path in enumerate(configs, 1):
         print(f'[{index}/{len(configs)}] Starting {path.stem}', flush=True)
         started = time.monotonic()
@@ -111,12 +112,16 @@ def main(argv=None):
             if args.llm != 'configured':
                 cfg['llm']['enabled'] = args.llm == 'on'
             result, output = run(cfg, base)
+            completed_names.append(cfg['name'])
+            candidate_failures.extend(dict(scenario=cfg['name'], **record) for record in
+                result.get('rejected_candidates', []) + result.get('failed_candidates', []))
             elapsed = time.monotonic() - started
             for arm in result['arms']:
                 m = arm['final']['metrics']
                 history = arm['history']
                 rows.append(dict(scenario=cfg['name'], value_unit=cfg['process']['unit'], arm=arm['name'], initial_method=arm['initial_method'],
                                  family=arm.get('family','reference'), role=arm.get('role',''),
+                                 status=arm['final'].get('status'),
                                  used_legacy_tuning_core=result.get('selection',{}).get('used_legacy_tuning_core'),
                                  selection_priority=cfg['tuning']['selection_priority'],
                                  legacy_status=result.get('selection',{}).get('legacy_status'),
@@ -132,14 +137,15 @@ def main(argv=None):
                                  initial_guard_policy=result['guardrail_context']['initial_candidates'],
                                  final_guard_policy=result['guardrail_context']['final_delivery'],
                                  llm_enabled=cfg['llm']['enabled'], llm_history_records=len(history),
-                                 valid_llm_suggestions=sum('applied_pid' in h for h in history),
+                                 valid_llm_suggestions=sum(h.get('applied_pid') is not None for h in history),
+                                 rejected_llm_suggestions=sum(h.get('event')=='guardrail_rejected' for h in history),
                                  scenario_elapsed_s=round(elapsed, 3), config_sha256=result['config_sha256'],
                                  report=report_link(output / 'report.html', directory)))
                 print(f"  {arm['name']}: eligible={m['eligible']} IAE={m['iae_c_s']:.2f} settling={m['settling_time_s']}", flush=True)
         except (ConfigError, RuntimeError, OSError, ValueError, ImportError) as exc:
             failures.append({'config': path.name, 'error_type': type(exc).__name__})
             print(f'  Failed: {type(exc).__name__}', flush=True)
-        save_summary(directory, rows, failures, len(configs))
+        save_summary(directory, rows, failures, len(configs), candidate_failures, completed_names)
     print(f'Summary: {directory / "index.html"}', flush=True)
     return 1 if failures else 0
 

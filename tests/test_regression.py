@@ -56,8 +56,8 @@ class PIDSafetyLimitTests(unittest.TestCase):
         self.assertEqual(limits["i"]["max"], 12.0)
         self.assertEqual(limits["i"]["max_increase_ratio"], 2.0)
         self.assertEqual(limits["d"]["max"], 250.0)
-        self.assertEqual(safe_pid["p"], 30.0)
-        self.assertEqual(safe_pid["i"], 2.0)
+        self.assertEqual(safe_pid["p"], 10.0)
+        self.assertEqual(safe_pid["i"], 1.0)
 
     def test_system_prompt_includes_runtime_pid_limits(self):
         prompt = get_system_prompt(
@@ -467,7 +467,8 @@ class TuningSessionHistoryTests(unittest.TestCase):
         record = state.history.history[0]
         self.assertEqual(record["pid"], {"p": 1.0, "i": 0.0, "d": 0.0})
         self.assertEqual(record["metrics"]["avg_error"], 148.26)
-        self.assertEqual(state.buffer.current_pid["p"], 3.0)
+        self.assertEqual(state.buffer.current_pid["p"], 1.0)
+        self.assertEqual(state.round_num, 0)
 
     def test_dual_loop_rollback_restores_both_controllers(self):
         """When a dual-controller round regresses, apply_rollback must also
@@ -617,7 +618,8 @@ class TuningSessionHistoryTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.safe_pid["p"], 5000.0)
-        self.assertIn("P 已达上限 5000.0000", "; ".join(decision.guardrail_notes))
+        self.assertFalse(decision.accepted)
+        self.assertIn("P=6000", "; ".join(decision.guardrail_notes))
 
 
     def test_adapt_simulink_pid_limits_keeps_base_limits_without_discrete_hints(self):

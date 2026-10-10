@@ -7,7 +7,8 @@ import socket
 import time
 import uuid
 from .config import ConfigError
-from .control import export_pid, import_pid, Controller
+from .control import export_pid, import_pid, Controller, guard
+from pid_safety import PIDRejected, pid_equals
 from .models import Plant, load_factory
 from .process import quantity, is_legacy_temperature, checkpoint
 
@@ -272,6 +273,14 @@ def deploy(cfg, device, before, recommendation, audit, cancelled=None):
                 "operating state moved too far during planning; regenerate recommendation"
             )
         checkpoint(cancelled)
+        try:
+            checked, _ = guard(cfg, import_pid(cfg, fresh['pid']), import_pid(cfg, wanted), stage='delivery')
+            if not pid_equals(checked, recommendation['pid']):
+                raise DeviceError('exported/internal PID mismatch; refusing write')
+        except PIDRejected as exc:
+            audit.append(dict(event='guardrail_rejected', requested_pid=exc.decision.requested_pid,
+                reasons=exc.decision.notes, write_attempted=False))
+            raise DeviceError('final PID rejected by guardrails; device write refused') from exc
         ack = device.apply(wanted, target, before["revision"])
         if (
             not isinstance(ack, dict)

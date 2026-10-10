@@ -2,7 +2,7 @@
 
 import math
 from system_id import parallel_to_ideal, ideal_to_parallel
-from pid_safety import apply_pid_guardrails
+from pid_safety import check_pid_guardrails, PIDRejected
 from .models import Plant
 from .config import ConfigError
 from .process import checkpoint, quantity
@@ -20,14 +20,16 @@ def guard_policy(cfg, stage="llm"):
 
 
 def guard(cfg, current, candidate, *, stage="llm"):
-    values = {key: None if isinstance(value, bool) else value for key, value in candidate.items()}
-    return apply_pid_guardrails(
+    decision = check_pid_guardrails(
         current,
-        values,
+        candidate,
         cfg["controller"]["limits"],
         global_max_increase_ratio=cfg["controller"]["global_max_increase_ratio"],
         limit_increase=guard_policy(cfg, stage) == "relative",
     )
+    if not decision.accepted:
+        raise PIDRejected(decision)
+    return decision.pid, decision.notes
 
 
 def export_pid(cfg, pid):
@@ -239,10 +241,13 @@ def simulate(cfg, pid, cancelled=None):
     for row in rows:
         row['value'] = row['temperature_c']
         row['measured_value'] = row['measured_temperature_c']
+    measured = metrics(cfg, rows, abort)
     return {
         "pid": dict(pid),
         "export_pid": export_pid(cfg, pid),
-        "metrics": metrics(cfg, rows, abort),
+        "metrics": measured,
+        "guard_status": "ACCEPTED",
+        "status": "FAILED_SIMULATION" if abort else "PASSED" if measured['eligible'] else "FAILED_EVALUATION",
         "samples": rows,
     }
 

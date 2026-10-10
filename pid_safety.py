@@ -5,14 +5,15 @@
 PID 参数安全护栏。
 
 设计原则：
-1. 不干预正常的小步调参；
-2. 只限制明显危险的异常跳变；
-3. 在 LLM 失败时提供保守、可解释的兜底策略。
+1. 检查完整建议的有限数值、绝对范围和可选相对增幅；
+2. 任意一项不合规就拒绝整组，不自动裁剪；
+3. 参数合法不代表控制效果达标，仍需独立仿真与评价。
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Tuple
 
 
@@ -185,19 +186,39 @@ def _to_float(value: Any, fallback: float) -> float:
     return numeric
 
 
-def apply_pid_guardrails(
+@dataclass
+class PIDGuardDecision:
+    accepted: bool
+    pid: Dict[str, float] | None
+    requested_pid: Dict[str, Any]
+    notes: List[str]
+
+
+class PIDRejected(ValueError):
+    def __init__(self, decision: PIDGuardDecision):
+        self.decision = decision
+        super().__init__("；".join(decision.notes))
+
+
+def check_pid_guardrails(
     current_pid  : Dict[str, float],
     candidate_pid: Dict[str, Any],
     limits       : Dict[str, Dict[str, float]] | None = None,
     *,
     global_max_increase_ratio: float | None = None,
     limit_increase: bool = True,
-) -> Tuple[Dict[str, float], List[str]]:
-    """Check numeric/bound constraints; optionally also cap relative increases."""
+) -> PIDGuardDecision:
+    """Atomically accept the complete proposal or reject it; never clip gains.
+
+    A zero reference cannot define a multiplication bound. Such components
+    still receive absolute checks. Rejected parameters must not be simulated
+    or applied as if they were an accepted proposal.
+    """
     from core.config import CONFIG
     
     limits   = limits or DEFAULT_PID_LIMITS
-    sanitized: Dict[str, float] = {}
+    checked: Dict[str, float] = {}
+    requested: Dict[str, Any] = {}
     notes    : List[str]        = []
     
     global_ratio_limit = _to_float(
@@ -205,41 +226,50 @@ def apply_pid_guardrails(
         if global_max_increase_ratio is None else global_max_increase_ratio, 0.0)
 
     for key in PID_KEYS:
-        current_value = max(0.0, _to_float(current_pid.get(key, 0.0), 0.0))
-        raw_candidate = candidate_pid.get(key, current_value)
-        raw_value     = _to_float(raw_candidate, current_value)
+        current_value = _to_float(current_pid.get(key), 0.0)
+        raw_candidate = candidate_pid.get(key)
+        # Keep malformed values JSON-safe in reports and LLM feedback.
+        requested[key] = (raw_candidate if isinstance(raw_candidate, (str, int, bool, type(None)))
+                          or isinstance(raw_candidate, float) and math.isfinite(raw_candidate)
+                          else repr(raw_candidate))
         try:
-            candidate_is_finite = math.isfinite(float(raw_candidate))
-        except (TypeError, ValueError):
-            candidate_is_finite = False
-        if not candidate_is_finite:
-            notes.append(f"{key.upper()} 建议值无效或非有限，保留当前值 {current_value:.4f}")
-
+            raw_value = float(raw_candidate)
+            if isinstance(raw_candidate, bool) or not math.isfinite(raw_value):
+                raise ValueError()
+        except (TypeError, ValueError, OverflowError):
+            notes.append(f"拒绝整组参数：{key.upper()} 缺失、无效或非有限")
+            continue
         cfg           = limits.get(key, DEFAULT_PID_LIMITS[key])
-        bounded_value = max(cfg["min"], min(cfg["max"], raw_value))
-        if current_value >= cfg["max"] and raw_value > current_value:
-            notes.append(f"{key.upper()} 已达上限 {cfg['max']:.4f}，将不会继续升高")
-
+        if not cfg["min"] <= raw_value <= cfg["max"]:
+            notes.append(f"拒绝整组参数：{key.upper()}={raw_value:.6g} 超出绝对范围 [{cfg['min']:.6g}, {cfg['max']:.6g}]")
         max_increase_ratio = max(1.0, cfg.get("max_increase_ratio", 1.0))
         if global_ratio_limit > 1.0:
             max_increase_ratio = min(max_increase_ratio, global_ratio_limit)
             
         if limit_increase and current_value > 0:
             max_step_value = min(cfg["max"], current_value * max_increase_ratio)
-            if bounded_value > max_step_value:
+            if raw_value > max_step_value:
                 notes.append(
-                    f"{key.upper()} 增幅过大，已从 {bounded_value:.4f} 限制到 {max_step_value:.4f}"
+                    f"拒绝整组参数：{key.upper()}={raw_value:.6g} 超出本次增幅上限 {max_step_value:.6g}（当前 {current_value:.6g}，最多 {max_increase_ratio:.6g} 倍）"
                 )
-                bounded_value = max_step_value
-        elif bounded_value > cfg["max"]:
-            notes.append(f"{key.upper()} 超出上限，已裁剪到 {cfg['max']:.4f}")
+        checked[key] = raw_value
+    return PIDGuardDecision(not notes, checked if not notes else None, requested, notes)
 
-        if bounded_value != raw_value and not any(note.startswith(key.upper()) for note in notes):
-            notes.append(f"{key.upper()} 已从 {raw_value:.4f} 调整到 {bounded_value:.4f}")
 
-        sanitized[key] = bounded_value
+def apply_pid_guardrails(current_pid, candidate_pid, limits=None, *,
+                         global_max_increase_ratio=None, limit_increase=True):
+    """Compatibility interface: reject the proposal and retain current on failure.
 
-    return sanitized, notes
+    Planning/evaluation callers should use check_pid_guardrails so rejection
+    cannot be mistaken for a successful evaluation of the proposed method.
+    """
+    decision = check_pid_guardrails(current_pid, candidate_pid, limits,
+        global_max_increase_ratio=global_max_increase_ratio, limit_increase=limit_increase)
+    if not decision.accepted:
+        baseline = check_pid_guardrails(current_pid, current_pid, limits, limit_increase=False)
+        if not baseline.accepted:
+            raise PIDRejected(baseline)
+    return (decision.pid if decision.accepted else dict(current_pid)), decision.notes
 
 
 def build_fallback_suggestion(

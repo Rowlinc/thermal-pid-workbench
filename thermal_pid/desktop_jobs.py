@@ -129,11 +129,15 @@ class Job:
                         original_final_metrics=result.get('final_metrics') if result and self.workflow!='project' else None,
                         original_rounds=result.get('rounds_completed') if result and self.workflow!='project' else None,
                         candidates=[dict(name=c['name'],requested_pid=c['requested_pid'],
-                                         pid=c['pid'],guard_notes=c['guard_notes'],**c['metrics'])
+                                         pid=c['pid'],guard_notes=c['guard_notes'],status=c.get('status'),**c['metrics'])
                                     for c in result.get('candidates',[])] if result else
                                    [dict(name=e['name'],requested_pid=e['requested_pid'],pid=e['pid'],guard_notes=e['guard_notes'],**e['metrics'])
                                     for e in self.events if e['type']=='candidate'],
                         histories=[dict(name=a['name'],rounds=a['history']) for a in result.get('arms',[])] if result else [],
+                        rejected_candidates=result.get('rejected_candidates',[]) if result else
+                            [{k:v for k,v in e.items() if k!='type'} for e in self.events if e['type']=='candidate_rejected'],
+                        failed_candidates=result.get('failed_candidates',[]) if result else
+                            [{k:v for k,v in e.items() if k!='type'} for e in self.events if e['type']=='candidate_failed'],
                         process=result.get('process',project['process']) if result else project['process'],
                         target=(result.get('config',{}).get('task',{}).get('target_temperature_c',project['task']['target_temperature_c']) if result else project['task']['target_temperature_c']) if self.workflow=='project' else self.legacy_target,
                         experiment_name=project['name'],

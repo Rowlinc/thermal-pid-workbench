@@ -77,7 +77,7 @@ def select_initial_pid(identification, plant_factory, current_pid, setpoint, dt,
     model = identification["model"]
     candidates = tuning_candidates(model["K"], model["tau"], model["theta"], lambda_)
     results, traces = compare(plant_factory, candidates, setpoint, dt, duration,
-                              baseline, limits, controller_kind)
+                              baseline, limits, controller_kind, limit_increase=True)
     choice = choose_candidate(results, baseline, rules)
     # A final application check is relative to the same current PID, never a new bypass.
     safe, final_notes = apply_pid_guardrails(baseline, choice["selected_pid"], limits)
@@ -112,4 +112,6 @@ def original_zn_initialization(current_pid, buffer_size=100, limits=None):
                 "status":"original_warm_start_skipped"}
     safe, notes=apply_pid_guardrails(baseline,candidate,limits)
     return {"identification":identification,"selected_pid":safe,"requested_pid":candidate,
-            "guardrail_notes":notes,"status":"original_zn"}
+            "guardrail_notes":notes,"status":"original_zn",
+            "guard_status":"REJECTED_GUARDRAIL" if notes else "ACCEPTED",
+            "initialization_source":"current_pid_retained" if notes else "original_zn_formula"}

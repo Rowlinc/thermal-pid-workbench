@@ -9,12 +9,12 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 from system_id import tuning_candidates
-from pid_safety import should_rollback_to_best
+from pid_safety import should_rollback_to_best, PIDRejected
 from reference.original_system_id import system_identify as original_identify
 from .models import identify
 from .control import guard, guard_policy, simulate, rank
 from .config import ConfigError, validate
-from .process import checkpoint, quantity, public_config
+from .process import checkpoint, quantity, public_config, Cancelled
 
 
 def _legacy_metrics(trial):
@@ -87,7 +87,11 @@ def refine(cfg, initial, tuner, identified_model=None, cancelled=None, progress=
     history = []
     stable = 0
     # Each proposal is evaluated from the same initial state for the full task.
-    for index in range(cfg["tuning"]["rounds"]):
+    valid_rounds = requests = rejected_in_round = 0
+    max_requests = cfg['tuning']['max_llm_requests_per_route']
+    converged = False
+    while valid_rounds < cfg['tuning']['rounds'] and requests < max_requests:
+        index = valid_rounds
         checkpoint(cancelled)
         if progress:
             progress({'type':'progress','message':f'LLM 调优 {initial.get("name", "")}：第 {index+1} 轮'})
@@ -101,9 +105,11 @@ def refine(cfg, initial, tuner, identified_model=None, cancelled=None, progress=
             pid_limits=cfg["controller"]["limits"],
             pid_limits_are_runtime_enforced=True,
             guardrail_policy=guard_policy(cfg, "llm"),
+            guardrail_action="reject_entire_proposal",
             selection_priority=cfg['tuning'].get('selection_priority', 'accuracy'),
             instruction="Return positive seconds-based parallel gain magnitudes p/i/d. The process direction is applied separately. No actuator commands. Evaluate a complete setpoint step; do not infer safety from a short window.",
         )
+        requests += 1
         response = tuner.analyze(
             json.dumps(
                 {
@@ -123,26 +129,59 @@ def refine(cfg, initial, tuner, identified_model=None, cancelled=None, progress=
             diagnostic = dict(getattr(tuner, 'last_request_diagnostic', {}) or {})
             history.append(
                 {"round": index + 1, "event": "llm_unavailable", "action": "retain_best",
+                 "request": requests,
                  "diagnostic": diagnostic, "reason": diagnostic.get('message', 'LLM 未获得可用参数建议。')}
             )
             if progress:
                 progress({'type':'progress','message':history[-1]['reason'] + ' 已保留当前最佳参数。'})
             break
         candidate = response.get("pid", response.get("parameters", response))
-        if not isinstance(candidate, dict) or not all(k in candidate for k in ("p", "i", "d")):
-            history.append(
-                {"round": index + 1, "event": "invalid_llm_schema", "action": "retain_best"}
-            )
-            break
-        applied, notes = guard(cfg, current["pid"], candidate)
+        if not isinstance(candidate, dict):
+            candidate = {}
+        try:
+            applied, notes = guard(cfg, current["pid"], candidate)
+        except PIDRejected as exc:
+            history.append(dict(round=index + 1, event='guardrail_rejected', action='retain_best',
+                request=requests, status='REJECTED_GUARDRAIL',
+                requested_pid=exc.decision.requested_pid, applied_pid=None,
+                retained_pid=dict(best_deliverable['pid']), guard_notes=exc.decision.notes,
+                guard_policy=guard_policy(cfg, 'llm'),
+                reason='建议超限或无效，整组拒绝且未仿真。请按限制重新提出完整 p/i/d；未重新辨识对象。'))
+            current = best_deliverable
+            stable = 0
+            rejected_in_round += 1
+            if progress:
+                progress({'type':'progress','message':'LLM 建议被拒绝；保留最佳参数并反馈原因，继续下一轮。' + str(exc)})
+            if rejected_in_round > cfg['tuning']['max_guardrail_retries_per_round']:
+                history.append(dict(round=index+1, event='guardrail_retry_limit',
+                    requests_used=requests, valid_simulations=valid_rounds,
+                    reason='本轮护栏拒绝重试已用尽；结束该路线，保留最佳，不放宽限制。'))
+                break
+            continue
         checkpoint(cancelled)
-        trial = simulate(cfg, applied, cancelled=cancelled)
+        valid_rounds += 1
+        rejected_in_round = 0
+        try:
+            trial = simulate(cfg, applied, cancelled=cancelled)
+        except Cancelled:
+            raise
+        except (ValueError, RuntimeError, ArithmeticError) as exc:
+            history.append(dict(round=index+1, request=requests, event='simulation_failed',
+                status='FAILED_SIMULATION', guard_status='ACCEPTED', requested_pid=applied,
+                applied_pid=applied, reason='候选通过护栏但仿真失败：'+type(exc).__name__,
+                guard_notes=[], action='retain_best'))
+            current = best_deliverable
+            stable = 0
+            continue
         rollback = should_rollback_to_best(_legacy_metrics(trial), _legacy_metrics(best)) or (
             best["metrics"]["eligible"] and not trial["metrics"]["eligible"]
         )
         history.append(
             {
                 "round": index + 1,
+                "request": requests,
+                "status": trial.get('status', 'PASSED' if trial['metrics']['eligible'] else 'FAILED_EVALUATION'),
+                "guard_status": 'ACCEPTED',
                 "requested_pid": {
                     k: (
                         candidate[k]
@@ -163,27 +202,37 @@ def refine(cfg, initial, tuner, identified_model=None, cancelled=None, progress=
         )
         if key(trial) < key(best):
             best = trial
-        delivery_pid, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], trial["pid"], stage="delivery")
-        delivery_trial = simulate(cfg, delivery_pid) if delivery_pid != trial["pid"] else trial
+        try:
+            guard(cfg, cfg["controller"]["initial_pid"], trial["pid"], stage="delivery")
+            delivery_ok, delivery_notes = True, []
+        except PIDRejected as exc:
+            delivery_ok, delivery_notes = False, exc.decision.notes
+        history[-1]["delivery_accepted"] = delivery_ok
         history[-1]["delivery_guard_notes"] = delivery_notes
         history[-1]["delivery_guard_policy"] = guard_policy(cfg, "delivery")
-        history[-1]["delivery_metrics"] = delivery_trial["metrics"]
-        if key(delivery_trial) < key(best_deliverable):
-            best_deliverable = delivery_trial
-        current = best if rollback else trial
+        history[-1]["delivery_metrics"] = trial["metrics"] if delivery_ok else None
+        if delivery_ok and key(trial) < key(best_deliverable):
+            best_deliverable = trial
+        current = best_deliverable if not delivery_ok else best if rollback else trial
         stable = (
             stable + 1
-            if trial["metrics"]["eligible"]
+            if delivery_ok and trial["metrics"]["eligible"]
             and trial["metrics"]["iae_c_s"] / trial["metrics"]["duration_s"]
             <= cfg["tuning"]["average_error_threshold_c"]
             else 0
         )
         if stable >= cfg["tuning"]["stable_rounds"]:
+            converged = True
             break
-        if (response.get("done") is True or response.get("status") == "DONE") and trial["metrics"][
+        if delivery_ok and (response.get("done") is True or response.get("status") == "DONE") and trial["metrics"][
             "eligible"
         ]:
+            converged = True
             break
+    if not converged and requests >= max_requests and valid_rounds < cfg['tuning']['rounds']:
+        history.append(dict(round=valid_rounds+1, event='request_budget_exhausted',
+            requests_used=requests, valid_simulations=valid_rounds,
+            reason='该路线建议请求总上限已达到；保留最佳，继续其他路线。'))
     return best_deliverable, history
 
 
@@ -198,6 +247,8 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
     validate(cfg)
     m = identification["model"]
     candidates = []
+    rejected = []
+    failed = []
     unavailable = []
     if cfg['model']['source'] == 'manual':
         pid = cfg['controller']['initial_pid']
@@ -223,12 +274,37 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
             unavailable.append({"name": name, "reason": parameters["error"]})
             return None
         requested = {k: abs(parameters[v]) for k, v in zip(("p", "i", "d"), ("Kp", "Ki", "Kd"))}
-        applied, notes = guard(cfg, cfg["controller"]["initial_pid"], requested, stage="initial")
-        result = simulate(cfg, applied, cancelled=cancelled)
+        try:
+            applied, notes = guard(cfg, cfg["controller"]["initial_pid"], requested, stage="initial")
+        except PIDRejected as exc:
+            record = dict(name=name, requested_pid=exc.decision.requested_pid,
+                pid=None, guard_notes=exc.decision.notes,
+                formula={k:repr(v) if isinstance(v, float) and not math.isfinite(v) else v for k,v in parameters.items()},
+                guard_policy=guard_policy(cfg, 'initial'), status='REJECTED_GUARDRAIL',
+                simulated=False)
+            rejected.append(record)
+            unavailable.append(dict(name=name, reason='；'.join(exc.decision.notes), status='REJECTED_GUARDRAIL'))
+            if progress:
+                progress(dict(type='candidate_rejected', **record))
+            return None
+        try:
+            result = simulate(cfg, applied, cancelled=cancelled)
+        except Cancelled:
+            raise
+        except (ValueError, RuntimeError, ArithmeticError) as exc:
+            record = dict(name=name, requested_pid=requested, pid=None,
+                guard_notes=['参数检查通过，但仿真失败：'+type(exc).__name__],
+                guard_status='ACCEPTED', status='FAILED_SIMULATION', simulated=True)
+            failed.append(record)
+            unavailable.append(dict(name=name, status='FAILED_SIMULATION', reason=record['guard_notes'][0]))
+            if progress:
+                progress(dict(type='candidate_failed', **record))
+            return None
         result.update(name=name, requested_pid=requested, guard_notes=notes, formula=parameters,
                       guard_policy=guard_policy(cfg, "initial"))
         if progress:
             progress({'type':'candidate','name':name,'pid':applied,'requested_pid':requested,
+                      'status':result['status'], 'guard_status':'ACCEPTED',
                       'metrics':result['metrics'],'guard_notes':notes,
                       'samples':result['samples'][::max(1,len(result['samples'])//500)]})
         return result
@@ -237,16 +313,14 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
         result = evaluate(name, raw[name])
         if result:
             candidates.append(result)
-    if not candidates:
-        raise ConfigError("no calculable tuning candidates")
     key = lambda t: rank(t, cfg['tuning'].get('selection_priority', 'accuracy'))
-    selected = min(candidates, key=key)
-    if cfg["llm"]["enabled"] and tuner is None:
+    selected = min(candidates, key=key) if candidates else None
+    if candidates and cfg["llm"]["enabled"] and tuner is None:
         tuner = make_tuner(cfg, base, cancelled=cancelled) if cancelled is not None else make_tuner(cfg, base)
     results = []
     legacy_status = 'disabled' if not cfg['tuning'].get('include_legacy_route', True) else 'unavailable'
     legacy_reference = None
-    if data is not None and (cfg['tuning'].get('include_legacy_route', True) or cfg['tuning']['compare_original']):
+    if data is not None and candidates and (cfg['tuning'].get('include_legacy_route', True) or cfg['tuning']['compare_original']):
         try:
             old = original_identify(*data[:3])
             parameters = old.get("ziegler_nichols", {}).get(
@@ -259,12 +333,8 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
                         final=result, history=[], llm_enabled=False, role='identification_reference',
                         label='原辨识 Z-N 公式参考（不是原版完整调优）'))
                 if cfg['tuning'].get('include_legacy_route', True):
-                    from pid_safety import apply_pid_guardrails
                     from .legacy_route import run_legacy_route
-                    applied, notes = apply_pid_guardrails(cfg['controller']['initial_pid'], result['requested_pid'],
-                        limits=cfg['controller']['limits'], global_max_increase_ratio=cfg['controller']['global_max_increase_ratio'])
-                    initial = simulate(cfg, applied, cancelled=cancelled)
-                    initial.update(name='legacy_route', guard_notes=notes, requested_pid=result['requested_pid'])
+                    initial = dict(result, name='legacy_route')
                     best, history, execution = (run_legacy_route(cfg, initial, tuner, cancelled, progress)
                         if cfg['llm']['enabled'] else (initial, [], dict(completed=False, scope='LLM disabled; guarded original initialization only')))
                     legacy_status = 'completed' if execution['completed'] else ('llm_disabled' if not cfg['llm']['enabled'] else 'incomplete')
@@ -285,10 +355,12 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
         best, history = refine(cfg, arm, tuner, m, cancelled, progress) if cfg["llm"]["enabled"] else (arm, [])
         # Device writes retain the final jump check; offline formula comparisons
         # retain numeric/absolute bounds without an arbitrary default-PID cap.
-        deliverable, delivery_notes = guard(cfg, cfg["controller"]["initial_pid"], best["pid"], stage="delivery")
-        if deliverable != best["pid"]:
-            checked = simulate(cfg, deliverable)
-            best = min((arm, checked), key=key)
+        try:
+            guard(cfg, cfg["controller"]["initial_pid"], best["pid"], stage="delivery")
+            delivery_notes = []
+        except PIDRejected as exc:
+            delivery_notes = exc.decision.notes
+            best = arm
         results.append(
             {
                 "name": arm["name"],
@@ -330,6 +402,18 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
     routes = [r for r in results if r.get('role') == 'route']
     # On an exact tie retain the old baseline; adding a duplicate does not count
     # as an improvement. Eligibility and the selected objective are identical.
+    if not routes:
+        reason = '没有可用路线：候选被参数护栏拒绝、不可计算或仿真失败。未生成可用 PID。请检查数据、单位和限制，或选择更保守的整定设置。'
+        decision = dict(selected_route=None, selected_label='无可用路线', family=None,
+            qualified=False, reason=reason, priority=cfg['tuning'].get('selection_priority', 'accuracy'),
+            legacy_status=legacy_status, hybrid_status=hybrid_status, used_legacy_route=None,
+            used_legacy_tuning_core=None, baseline_comparison_available=False,
+            strictly_improved_vs_legacy=False, exact_tie_with_legacy=False,
+            legacy_reference_qualified=False, routes=[])
+        if progress:
+            progress(dict(type='selection', message=reason, decision=decision))
+        return _plan_result(cfg, identification, candidates, rejected, failed, unavailable, results,
+            decision, None, None, None)
     winner = min(routes, key=lambda r: (key(r['final']), {'legacy':0, 'new':1, 'hybrid':2}[r['family']]))
     final = winner['final']
     qualified = final['metrics']['eligible']
@@ -363,6 +447,12 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
         result.setdefault('final_delivery_guard_policy', guard_policy(cfg, 'delivery'))
     if progress:
         progress({'type':'selection','message':winner['label']+'：'+reason, 'decision':decision})
+    return _plan_result(cfg, identification, candidates, rejected, failed, unavailable, results,
+        decision, winner['initial_method'], selected['name'], final if qualified else None)
+
+
+def _plan_result(cfg, identification, candidates, rejected, failed, unavailable, results,
+                 decision, selected_method, initial_method, recommendation):
     return {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "config_sha256": hashlib.sha256(
@@ -373,6 +463,7 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
         "process": quantity(cfg),
         "guardrail_context": {
             "configured_policy": cfg["controller"]["guardrail_policy"],
+            "action": "reject_entire_proposal",
             "initial_candidates": guard_policy(cfg, "initial"),
             "llm_rounds": guard_policy(cfg, "llm"),
             "final_delivery": guard_policy(cfg, "delivery"),
@@ -380,15 +471,17 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
         },
         "identification": identification,
         "candidates": candidates,
+        "rejected_candidates": rejected,
+        "failed_candidates": failed,
         "unavailable": unavailable,
-        "selected_method": winner['initial_method'],
-        "initial_selected_method": selected['name'],
+        "selected_method": selected_method,
+        "initial_selected_method": initial_method,
         "selection": decision,
         "arms": results,
-        "recommended": final if final["metrics"]["eligible"] else None,
+        "recommended": recommendation,
         "recommendation_status": (
             "qualified_in_configured_simulation"
-            if final["metrics"]["eligible"]
+            if recommendation is not None
             else "no_qualified_candidate"
         ),
     }

@@ -57,6 +57,7 @@ def write_report(result, directory, save_csv=True):
                     "initial_method": arm["initial_method"],
                     "route_role": arm.get('role'),
                     "route_family": arm.get('family'),
+                    "status": arm['final'].get('status'),
                     "final_selected_route": (result.get('selection') or {}).get('selected_route'),
                     "used_legacy_route": (result.get('selection') or {}).get('used_legacy_route'),
                     "used_legacy_tuning_core": (result.get('selection') or {}).get('used_legacy_tuning_core'),
@@ -64,7 +65,7 @@ def write_report(result, directory, save_csv=True):
                 }
                 for arm in result["arms"]
             ]
-            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else ['name', 'initial_method', 'eligible'])
             writer.writeheader()
             writer.writerows(rows)
     target = result["config"]["task"]["target_temperature_c"]
@@ -72,6 +73,8 @@ def write_report(result, directory, save_csv=True):
 
     def chart(field, label):
         series = [arm["final"]["samples"] for arm in result["arms"]]
+        if not series:
+            return '<p>没有通过护栏的候选，未生成响应曲线。</p>'
         max_t = max(rows[-1]["time_s"] for rows in series)
         values = [row[field] for rows in series for row in rows]
         if field == "temperature_c":
@@ -117,7 +120,7 @@ def write_report(result, directory, save_csv=True):
             f"{m['tail_mae_c']:.5f}",
             "未稳定" if m["settling_time_s"] is None else f"{m['settling_time_s']:.1f}",
             f"{m['output_tv']:.3f}",
-            "达标" if m["eligible"] else ", ".join(FAILURE_LABELS.get(f,f) for f in m["failures"]),
+            arm['final'].get('status', "PASSED" if m["eligible"] else "FAILED_EVALUATION") + '：' + ("达标" if m["eligible"] else ", ".join(FAILURE_LABELS.get(f,f) for f in m["failures"])),
         ]
         rows.append(
             "<tr>" + "".join("<td>" + html.escape(str(cell)) + "</td>" for cell in cells) + "</tr>"
@@ -147,7 +150,7 @@ def write_report(result, directory, save_csv=True):
         doc += '<p><strong>本次护栏：</strong>' + '；'.join(
             html.escape(label + '：' + labels[context[key]])
             for label, key in (("初始公式候选", "initial_candidates"), ("LLM每轮", "llm_rounds"), ("最终参数", "final_delivery"))
-        ) + '。参数检查通过后仍须完整任务仿真达标；test 模式不连接设备。</p>'
+        ) + '。超限或无效时拒绝整组参数，不自动裁剪；LLM收到原因后可在剩余轮次重新建议。参数检查通过后仍须完整任务仿真达标；test 模式不连接设备。</p>'
     selection = result.get('selection')
     if selection:
         doc += '<p><strong>最终路线：' + html.escape(selection['selected_label']) + '</strong>。' + html.escape(selection['reason']) + ' 评价标准：' + html.escape(selection['priority']) + '。旧版路线状态：' + html.escape(selection['legacy_status']) + '。</p>'
@@ -194,7 +197,7 @@ def write_report(result, directory, save_csv=True):
         + data
         + "</pre></details><p>IAE 越小表示累计温差越小；末段 MAE 越小表示最终越接近目标；调节时间须持续保持在配置温差带内；输出变化总量越小表示动作更平稳。先看是否达标，再比较 IAE 和输出变化。</p></html>"
     )
-    candidates = "<h2>Z-N / SIMC 初始候选</h2><p>下表 p/i/d 均为秒制并联式非负幅值，过程方向由 K 决定。实际对比使用护栏后的参数。</p><table><tr><th>候选</th><th>公式计算 p/i/d</th><th>护栏后 p/i/d</th><th>超调 %</th><th>IAE</th><th>结果</th></tr>"
+    candidates = "<h2>Z-N / SIMC 初始候选</h2><p>下表 p/i/d 均为秒制并联式非负幅值，过程方向由 K 决定。检查通过后使用原建议参数仿真；被拒绝候选未仿真，没有性能指标。</p><table><tr><th>候选</th><th>公式计算 p/i/d</th><th>通过检查的 p/i/d</th><th>超调 %</th><th>IAE</th><th>结果</th></tr>"
     for trial in result["candidates"]:
         m = trial["metrics"]
         values = [
@@ -203,7 +206,7 @@ def write_report(result, directory, save_csv=True):
             ", ".join(f'{trial["pid"][k]:.6g}' for k in ("p", "i", "d")),
             f'{m["overshoot_pct"]:.3f}',
             f'{m["iae_c_s"]:.3f}',
-            "达标" if m["eligible"] else ", ".join(FAILURE_LABELS.get(f,f) for f in m["failures"]),
+            trial.get('status', "PASSED" if m["eligible"] else "FAILED_EVALUATION") + '：' + ("达标" if m["eligible"] else ", ".join(FAILURE_LABELS.get(f,f) for f in m["failures"])),
         ]
         candidates += (
             "<tr>" + "".join("<td>" + html.escape(str(v)) + "</td>" for v in values) + "</tr>"
@@ -212,6 +215,14 @@ def write_report(result, directory, save_csv=True):
             candidates += (
                 '<tr><td colspan="6">' + html.escape("；".join(trial["guard_notes"])) + "</td></tr>"
             )
+    for trial in result.get('rejected_candidates', []):
+        values = [trial['name'], json.dumps(trial['requested_pid'], ensure_ascii=False),
+                  '—', '—', '—', 'REJECTED_GUARDRAIL：护栏拒绝（未仿真）：' + '；'.join(trial['guard_notes'])]
+        candidates += '<tr>' + ''.join('<td>' + html.escape(str(v)) + '</td>' for v in values) + '</tr>'
+    for trial in result.get('failed_candidates', []):
+        values = [trial['name'], json.dumps(trial['requested_pid'], ensure_ascii=False),
+                  '—', '—', '—', 'FAILED_SIMULATION：' + '；'.join(trial['guard_notes'])]
+        candidates += '<tr>' + ''.join('<td>' + html.escape(str(v)) + '</td>' for v in values) + '</tr>'
     candidates += (
         "</table><details><summary>LLM 各轮及最终写入增幅检查</summary><pre>"
         + html.escape(

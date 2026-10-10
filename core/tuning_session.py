@@ -9,6 +9,7 @@ from core.config import CONFIG
 from core.history import TuningHistory
 from pid_safety import (
     apply_pid_guardrails,
+    check_pid_guardrails,
     build_fallback_suggestion,
     is_good_enough,
     maybe_update_best_result,
@@ -58,6 +59,8 @@ class DecisionOutcome:
     fallback_used: bool
     status: str
     completed_reason: Optional[str] = None
+    accepted: bool = True
+    requested_pid: Dict[str, Any] = field(default_factory=dict)
 
 
 def create_tuning_session(
@@ -251,6 +254,7 @@ def finalize_decision(
     result: Optional[Dict[str, Any]],
     *,
     limits: Optional[Dict[str, Dict[str, float]]] = None,
+    extra_guardrail_notes: Optional[List[str]] = None,
 ) -> DecisionOutcome:
     if not result:
         result = build_fallback_suggestion(
@@ -259,16 +263,23 @@ def finalize_decision(
             limits=limits,
         )
 
-    safe_pid, guardrail_notes = apply_pid_guardrails(
+    checked = check_pid_guardrails(
         evaluation.current_pid,
         result,
         limits=limits,
     )
+    guardrail_notes = checked.notes + list(extra_guardrail_notes or [])
+    accepted = checked.accepted and not extra_guardrail_notes
+    safe_pid = checked.pid if accepted else dict(evaluation.current_pid)
     analysis = str(result.get("analysis_summary", "No analysis summary was provided."))
     thought = str(result.get("thought_process", ""))
     action = str(result.get("tuning_action", "UNKNOWN"))
     fallback_used = bool(result.get("fallback_used"))
     status = str(result.get("status", "TUNING")).upper()
+    if not accepted:
+        action, status = 'REJECT_PID', 'TUNING'
+        analysis += '\n' + '；'.join(guardrail_notes) + '\n建议未采用，保留当前参数。请按限制重新建议完整 p/i/d。'
+        thought += '\nRejected proposal: ' + str(checked.requested_pid)
 
     state.history.add_record(
         evaluation.round_index,
@@ -282,10 +293,11 @@ def finalize_decision(
         state.fallback_count += 1
     if guardrail_notes:
         state.guardrail_count += 1
-    state.round_num += 1
-    state.buffer.reset()
+    if accepted:
+        state.round_num += 1
+        state.buffer.reset()
 
-    completed_reason = "llm_marked_done" if status == "DONE" else None
+    completed_reason = "llm_marked_done" if status == "DONE" and accepted else None
     return DecisionOutcome(
         safe_pid=safe_pid,
         action=action,
@@ -295,6 +307,8 @@ def finalize_decision(
         fallback_used=fallback_used,
         status=status,
         completed_reason=completed_reason,
+        accepted=bool(accepted),
+        requested_pid=checked.requested_pid,
     )
 
 

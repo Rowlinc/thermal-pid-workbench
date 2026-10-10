@@ -395,13 +395,16 @@ function drawJob(j) {
       .join("") +
     "</tbody>";
   $("#candidates").innerHTML =
-    `<tr><th>候选</th><th>公式计算 p / i / d</th><th>护栏后 p / i / d</th><th>IAE</th><th>评价 / 护栏记录</th></tr>` +
+    `<tr><th>候选</th><th>公式计算 p / i / d</th><th>通过检查的 p / i / d</th><th>IAE</th><th>评价 / 护栏记录</th></tr>` +
     (j.candidates || [])
       .map(
         (c) =>
-          `<tr><td>${esc(c.name)}</td><td>${esc(pidText(c.requested_pid))}</td><td>${esc(pidText(c.pid))}</td><td>${num(c.iae ?? c.iae_c_s)}</td><td>${c.eligible ? "达标" : esc(c.failures.map(failureText).join("，"))}<br>${esc(c.guard_notes.join("；"))}</td></tr>`,
+          `<tr><td>${esc(c.name)}</td><td>${esc(pidText(c.requested_pid))}</td><td>${esc(pidText(c.pid))}</td><td>${num(c.iae ?? c.iae_c_s)}</td><td>${c.status === 'FAILED_SIMULATION' ? 'FAILED_SIMULATION：' : c.status ? esc(c.status) + '：' : ''}${c.eligible ? "达标" : esc(c.failures.map(failureText).join("，"))}<br>${esc(c.guard_notes.join("；"))}</td></tr>`,
       )
-      .join("");
+      .join("") +
+    [...(j.rejected_candidates || []), ...(j.failed_candidates || [])].map(c =>
+      `<tr><td>${esc(c.name)}</td><td>${esc(pidText(c.requested_pid))}</td><td>—</td><td>—</td><td class="status-bad">${c.status === 'FAILED_SIMULATION' ? 'FAILED_SIMULATION：仿真失败' : 'REJECTED_GUARDRAIL：护栏拒绝（未仿真）'}<br>${esc(c.guard_notes.join("；"))}</td></tr>`
+    ).join("");
   const cfg = j.config || {};
   const pcfg = j.process || state.project.process;
   $("#response-title").textContent = pcfg.name + "响应（" + pcfg.unit + "）";

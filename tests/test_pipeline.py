@@ -53,7 +53,7 @@ class PipelineTests(unittest.TestCase):
     def test_select_then_handoff_to_original_engine(self):
         identified={"model":{"K":.8,"tau":300.,"theta":20.}}
         factory=lambda:FOPDTPlant(.8,300,20,1)
-        init,_=select_initial_pid(identified,factory,{"p":1.,"i":.1,"d":.05},80,1,2400)
+        init,_=select_initial_pid(identified,factory,{"p":2.,"i":.1,"d":.05},80,1,2400)
         self.assertEqual(init["selection"]["selected_method"],"SIMC_PI")
         seen=[]
         def tuner_factory(env):
@@ -72,10 +72,10 @@ class PipelineTests(unittest.TestCase):
         factory=lambda:FOPDTPlant(.8,300,20,1)
         episode,_=run_episode(factory,{"p":1.,"i":.1,"d":.05},80,1,"thermal",
                               lambda env:RecordedTuner(DoneTuner(),"mock"),rounds=2,samples=10)
-        self.assertEqual(len(episode["tuner_calls"]),2)
-        self.assertNotEqual(episode["engine"]["completed_reason"],"llm_marked_done")
-        self.assertEqual(episode["actual_final_pid"],episode["apply_audit"][-1]["applied_pid"])
-        self.assertLessEqual(episode["actual_final_pid"]["p"],9.)
+        self.assertEqual(len(episode["tuner_calls"]),3)
+        self.assertEqual(episode["engine"]["completed_reason"],"guardrail_retry_limit")
+        self.assertEqual(episode["apply_audit"],[])
+        self.assertEqual(episode["actual_final_pid"],{"p":1.,"i":.1,"d":.05})
 
     def test_api_failure_keeps_original_fallback_mechanism(self):
         class Failed:

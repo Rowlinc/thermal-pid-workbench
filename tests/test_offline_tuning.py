@@ -7,7 +7,7 @@ from core.offline_evaluation import evaluate_step
 from offline_compare import FOPDTPlant, ParallelController, compare, heating_probe
 from system_id import (ideal_to_parallel, parallel_to_ideal, tuning_candidates,
                        system_identify, extract_initial_pid, normalize_time_axis, read_from_file)
-from pid_safety import apply_pid_guardrails, get_pid_limits
+from pid_safety import apply_pid_guardrails, check_pid_guardrails, get_pid_limits
 from core.config import CONFIG
 from core.tuning_session import create_tuning_session, RoundEvaluation, finalize_decision
 
@@ -104,23 +104,15 @@ class OfflineTuningTests(unittest.TestCase):
     def test_all_sources_share_guardrails_before_plant_creation(self):
         proposal = {"Kp":10000.0, "Ki":1000.0, "Kd":1000.0}
         candidates = {name:dict(proposal) for name in ("ZN_PID", "SIMC_PI", "LLM")}
-        events=[]
-        def checked(current, candidate, limits=None):
-            events.append("check")
-            return apply_pid_guardrails(current,candidate,limits)
-        def factory():
-            self.assertEqual(events[-1],"check")
-            events.append("plant")
-            return FOPDTPlant(.8,300,20,1)
-        with patch("offline_compare.apply_pid_guardrails", side_effect=checked):
-            results,traces=compare(factory,candidates,80,1,30)
+        factory=unittest.mock.Mock()
+        results,traces=compare(factory,candidates,80,1,30)
+        factory.assert_not_called()
         for result in results.values():
             self.assertEqual(result["requested_gains"],proposal)
-            self.assertEqual([result["gains"][k] for k in ("Kp","Ki","Kd")],[3,.4,.2])
-            self.assertEqual(result["safety_status"],"adjusted")
+            self.assertIsNone(result["gains"])
+            self.assertEqual(result["safety_status"],"rejected")
             self.assertTrue(result["guardrail_notes"])
-        self.assertEqual(traces["ZN_PID"],traces["SIMC_PI"])
-        self.assertEqual(traces["SIMC_PI"],traces["LLM"])
+        self.assertEqual(traces,{})
 
     def test_nonfinite_offline_suggestion_never_constructs_plant(self):
         factory=unittest.mock.Mock()
@@ -137,8 +129,9 @@ class OfflineTuningTests(unittest.TestCase):
         decision=finalize_decision(state,evaluation,candidate,limits=get_pid_limits("python_sim"))
         results,_=compare(lambda:FOPDTPlant(.8,300,20,1),
                           {"LLM":{"Kp":candidate["p"],"Ki":candidate["i"],"Kd":candidate["d"]}},80,1,30)
-        applied=results["LLM"]["gains"]
-        self.assertEqual(decision.safe_pid,{"p":applied["Kp"],"i":applied["Ki"],"d":applied["Kd"]})
+        self.assertFalse(decision.accepted)
+        self.assertEqual(decision.safe_pid,baseline)
+        self.assertIsNone(results["LLM"]["gains"])
         self.assertEqual(decision.guardrail_notes,results["LLM"]["guardrail_notes"])
 
     def test_invalid_llm_gains_are_held_and_explained(self):
@@ -150,9 +143,9 @@ class OfflineTuningTests(unittest.TestCase):
     def test_configured_limit_and_global_ratio_apply_to_every_source(self):
         with patch.dict(CONFIG,{"PID_MAX_INCREASE_RATIO":2.0}):
             results,_=compare(lambda:FOPDTPlant(.8,300,20,1),
-                              {"SIMC_PI":{"Kp":30,"Ki":2,"Kd":2}},80,1,30)
-        gains=results["SIMC_PI"]["gains"]
-        self.assertEqual([gains[k] for k in ("Kp","Ki","Kd")],[2,.2,.1])
+                              {"SIMC_PI":{"Kp":30,"Ki":2,"Kd":2}},80,1,30,limit_increase=True)
+        self.assertIsNone(results["SIMC_PI"]["gains"])
+        self.assertEqual(results["SIMC_PI"]["safety_status"],"rejected")
 
 
 if __name__ == "__main__":

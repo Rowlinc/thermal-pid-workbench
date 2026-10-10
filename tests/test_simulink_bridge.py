@@ -802,9 +802,8 @@ class SimulinkBridgeCompatTests(unittest.TestCase):
         )
 
         self.assertTrue(notes)
-        self.assertIn(("demo/Inner PID", "Kp", "10.0"), bridge._eng.set_param_calls)
-        self.assertIn(("demo/Inner PID", "Ki", "3.0"), bridge._eng.set_param_calls)
-        self.assertIn(("demo/Inner PID", "Kd", "1.5"), bridge._eng.set_param_calls)
+        self.assertEqual(bridge._eng.set_param_calls, [])
+        self.assertTrue(bridge.last_apply_issue)
 
     def test_set_pid_pair_skips_mirrored_secondary_suggestion(self):
         bridge = self._make_bridge({})

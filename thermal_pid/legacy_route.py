@@ -9,6 +9,7 @@ import threading
 from .control import Controller, guard, simulate, rank
 from .models import Plant
 from .process import checkpoint, quantity
+from pid_safety import PIDRejected
 
 _CONFIG_LOCK = threading.RLock()
 
@@ -47,11 +48,25 @@ def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
 
         def apply_pid(self, primary_pid, secondary_pid=None):
             checkpoint(cancelled)
-            self.pid, notes = guard(cfg, self.pid, primary_pid, stage='llm')
+            try:
+                accepted, notes = guard(cfg, self.pid, primary_pid, stage='llm')
+            except PIDRejected as exc:
+                history.append(dict(round=len(history)+1, event='guardrail_rejected',
+                    requested_pid=exc.decision.requested_pid, applied_pid=None,
+                    retained_pid=dict(self.pid), guard_notes=exc.decision.notes,
+                    reason='旧版核心建议／回滚被统一护栏拒绝，未应用且未仿真。'))
+                return
+            self.pid = accepted
             self.controller.pid = dict(self.pid)
             # Every applied proposal, including rollback, receives a fresh full-task
             # evaluation. A final-round proposal is never trusted without a trial.
-            delivery, delivery_notes = guard(cfg, cfg['controller']['initial_pid'], self.pid, stage='delivery')
+            try:
+                delivery, delivery_notes = guard(cfg, cfg['controller']['initial_pid'], self.pid, stage='delivery')
+            except PIDRejected as exc:
+                history.append(dict(round=len(history)+1, event='delivery_rejected',
+                    requested_pid=dict(self.pid), applied_pid=dict(self.pid), delivery_pid=None,
+                    guard_notes=exc.decision.notes, reason='仿真内部建议未通过最终设备总增幅检查，不作为可写入候选。'))
+                return
             trial = simulate(cfg, delivery, cancelled=cancelled)
             trials.append(trial)
             history.append(dict(round=len(history) + 1, applied_pid=dict(self.pid),
@@ -72,6 +87,10 @@ def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
     class Sink:
         def publish(self, kind, **values):
             if kind != 'sample': events.append(dict(type=kind, **values))
+            if kind == 'decision' and values.get('accepted') is False:
+                history.append(dict(round=values.get('round'), event='guardrail_rejected',
+                    requested_pid=values.get('requested_pid'), applied_pid=None,
+                    guard_notes=values.get('guardrail_notes', []), reason=values.get('analysis_summary', '')))
 
     runtime = deepcopy(DEFAULT_CONFIG)
     runtime.update(BUFFER_SIZE=cfg['tuning']['samples_per_round'],
@@ -92,18 +111,23 @@ def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
         try:
             CONFIG.clear(); CONFIG.update(runtime)
             engine = run_tuning_engine(Environment(), original_tuner, 'generic',
-                event_sink=Sink(), emit_console=False)
+                event_sink=Sink(), emit_console=False,
+                guardrail_retries_per_round=cfg['tuning']['max_guardrail_retries_per_round'],
+                max_llm_requests=cfg['tuning']['max_llm_requests_per_route'])
         finally:
             CONFIG.clear(); CONFIG.update(saved)
     checkpoint(cancelled)
     # The original final PID remains in the pool, alongside all previously
     # applied PIDs, and the guarded original initialization.
-    delivery, notes = guard(cfg, cfg['controller']['initial_pid'], engine['final_pid'], stage='delivery')
-    final = simulate(cfg, delivery, cancelled=cancelled)
-    trials.append(final)
+    try:
+        delivery, notes = guard(cfg, cfg['controller']['initial_pid'], engine['final_pid'], stage='delivery')
+        final = simulate(cfg, delivery, cancelled=cancelled)
+        trials.append(final)
+    except PIDRejected as exc:
+        notes, final = exc.decision.notes, None
     best = min(trials, key=lambda t: rank(t, priority))
     return best, history, dict(engine=engine, events=events,
-        completed=engine.get('completed_reason') != 'error',
-        raw_final_pid=engine['final_pid'], final_pid_metrics=final['metrics'],
+        completed=engine.get('completed_reason') not in ('error', 'guardrail_retry_limit', 'request_budget_exhausted'),
+        raw_final_pid=engine['final_pid'], final_pid_metrics=final['metrics'] if final else None,
         delivery_guard_notes=notes, evaluated_pid_count=len(trials),
         scope='original continuous tuning core on common adapted plant/controller')

@@ -484,6 +484,35 @@ class SimulinkBridge:
         secondary: Optional[Dict[str, float]] = None,
     ) -> List[str]:
         self.last_apply_issue = ""
+        # Preflight both controllers before the first write. A rejected second
+        # controller must not leave an accepted first controller partially applied.
+        from pid_safety import check_pid_guardrails
+        limits = adapt_simulink_pid_limits(get_pid_limits('simulink'),
+            control_domain=self.control_domain,
+            controller_1_sample_time=self.controller_1_sample_time,
+            controller_2_sample_time=self.controller_2_sample_time,
+            model_fixed_step=self.model_fixed_step)
+        current = {k:self._read_controller_gain(k, v) for k,v in
+                   zip(('p','i','d'), (self.kp,self.ki,self.kd))}
+        primary = {k:primary.get(k, current[k]) for k in ('p','i','d')}
+        checked = check_pid_guardrails(current, primary, limits=limits)
+        if not checked.accepted:
+            self.last_apply_issue = '; '.join(checked.notes)
+            return checked.notes
+        if secondary is not None and self.secondary_pid_block_path and self.secondary_pid_block_path != self.pid_block_path:
+            saved = self.pid_block_path, self.pid_block_paths, self.separate_gain_paths
+            try:
+                self.pid_block_path = self.secondary_pid_block_path
+                self.pid_block_paths = list(self.secondary_pid_block_paths)
+                self.separate_gain_paths = dict(self.secondary_separate_gain_paths)
+                current_secondary = {k:self._read_controller_gain(k, 0.0) for k in ('p','i','d')}
+                secondary = {k:secondary.get(k, current_secondary[k]) for k in ('p','i','d')}
+                checked_secondary = check_pid_guardrails(current_secondary, secondary, limits=limits)
+            finally:
+                self.pid_block_path, self.pid_block_paths, self.separate_gain_paths = saved
+            if not checked_secondary.accepted:
+                self.last_apply_issue = '; '.join(checked_secondary.notes)
+                return checked_secondary.notes
         self.set_pid(
             float(primary.get("p", self.kp)),
             float(primary.get("i", self.ki)),

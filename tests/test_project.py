@@ -241,6 +241,8 @@ def test_configured_prompt_uses_task_not_hardcoded_limits():
 
 def use_config():
     cfg = config()
+    # Keep this deployment fixture inside the formula's permitted change range.
+    cfg['controller']['initial_pid'] = {'p':5, 'i':0.2, 'd':0}
     cfg["mode"] = "use"
     cfg["device"].update(
         adapter="simulated", write_enabled=True, monitor_duration_s=3, max_planning_output_change=20

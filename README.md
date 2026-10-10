@@ -252,7 +252,7 @@ Copy-Item -LiteralPath project.json -Destination project.use.local.json
 .\.venv\Scripts\python.exe pid_project.py --config project.use.local.json
 ```
 
-最后一条命令会读取真实设备，并在条件满足时**写入PID和目标温度**。按设备当前参数重新限制增幅后，使用模式的结果可能与test不同；必须同时看报告与 `device_audit.json`。接口不匹配、工况变化过大或没有合格参数会拒绝写入。监测只持续配置的时间，结束后程序退出。
+最后一条命令会读取真实设备，并在条件满足时**写入PID和目标温度**。按设备当前参数检查增幅后，使用模式的结果可能与test不同；必须同时看报告与 `device_audit.json`。接口不匹配、工况变化过大或没有合格参数会拒绝写入。监测只持续配置的时间，结束后程序退出。
 
 ## 6．情况四：使用模式，使用LLM
 
@@ -345,7 +345,7 @@ Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
 
 | 文件 | 内容 |
 |---|---|
-| `report.html` | 温度/输出曲线、三组指标、公式与护栏后参数、达标原因、LLM历史 |
+| `report.html` | 温度/输出曲线、三组指标、原建议与接受/拒绝状态、达标原因、LLM历史 |
 | `pid.json` | 合格PID及形式/单位；没有合格结果则pid为null |
 | `summary.json` | 本次实际配置、时间/哈希、辨识、候选、各轮建议、回滚与护栏策略 |
 | `metrics.csv`、各组CSV | 指标及响应数据，便于自己绘图 |
@@ -361,7 +361,7 @@ Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
 
 `original_zn` 仅是未调优的公式参考。启用 LLM 后，各条适用路线分别调优，最终按同一标准跨路线选择；同分保留旧版。界面、历史和导出明确记录旧版是否被选中。共享对象接口不等于运行原版专用温控模型，单次仿真不能证明所有真实对象上更优。
 
-`controller.guardrail_policy=auto` 默认在test初始公式和最终建议阶段检查有效数值/绝对范围，LLM每轮仍限制相对当前仿真参数的增幅；use保留相对实际设备参数及最终总增幅检查。`relative`可复现旧策略。护栏后的参数仍须仿真达标；配置的参数范围不等于现场安全边界。见[护栏说明](docs/GUARDRAILS.md)。
+`controller.guardrail_policy=auto` 默认在test初始公式和最终建议阶段检查有效数值/绝对范围，LLM每轮仍限制相对当前仿真参数的增幅；use保留相对实际设备参数及最终总增幅检查。`relative`让test初始公式也检查相对增幅。超限或无效时拒绝整组，不自动裁剪，继续尝试其他候选。通过检查的参数仍须仿真达标；配置的参数范围不等于现场安全边界。见[护栏说明](docs/GUARDRAILS.md)。
 
 ## 10．常见问题
 
@@ -415,3 +415,9 @@ Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
 先按前文创建环境、安装 `.[llm]` 并在根目录 `config.json` 保存密钥；关闭API调用时将上面的 `--llm on` 改为 `--llm off`。结果不随源码上传。
 
 0.4.2纳入明确标识的混合候选：修正Z-N初值后使用保留的旧版连续调优核心。`tuning.include_corrected_legacy_route`可控制是否运行，默认开启，LLM关闭时跳过。最终来源分为旧版完整路线、纯新路线、混合路线；报告与历史分别记录，混合路线胜出不会被归因于纯新版LLM策略。
+
+### 超限拒绝与 LLM 重试
+
+`tuning.rounds=4` 表示每条新路线最多仿真4组合法LLM建议；`max_guardrail_retries_per_round=2` 表示每轮被拒绝后最多再请求2次；`max_llm_requests_per_route=12` 限制每条路线的建议接口总调用次数。网络失败重试仍由 `llm.max_attempts` 限制。所有字段可在界面修改，省略采用默认值。
+
+候选超限标记 `REJECTED_GUARDRAIL`，记录原值、允许范围和原因，未仿真、没有性能指标；不代表算法计算错误。其余候选继续运行。仿真失败是 `FAILED_SIMULATION`，仿真完成但效果不合格是 `FAILED_EVALUATION`，通过评价是 `PASSED`。所有候选不可用时仍保存记录，PID为空。旧调优核心也使用当前拒绝护栏，不能把本版旧路线结果当作未修改原项目的独立运行。详细见[护栏与状态说明](docs/GUARDRAILS.md)。

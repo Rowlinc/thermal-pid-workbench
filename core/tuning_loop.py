@@ -40,6 +40,8 @@ def publish_decision(
         analysis_summary=decision.analysis,
         fallback_used=decision.fallback_used,
         guardrail_notes=list(decision.guardrail_notes),
+        accepted=getattr(decision, 'accepted', True),
+        requested_pid=getattr(decision, 'requested_pid', {}),
     )
 
 
@@ -57,9 +59,9 @@ def flatten_controller_result(
     secondary = result.get("controller_2") if isinstance(result.get("controller_2"), dict) else None
     if primary:
         result = {
-            "p": float(primary.get("p", current_pid["p"])),
-            "i": float(primary.get("i", current_pid["i"])),
-            "d": float(primary.get("d", current_pid["d"])),
+            "p": primary.get("p"),
+            "i": primary.get("i"),
+            "d": primary.get("d"),
             "analysis_summary": result.get("analysis_summary", ""),
             "thought_process": result.get("thought_process", ""),
             "tuning_action": result.get("tuning_action", "ADJUST_PID"),

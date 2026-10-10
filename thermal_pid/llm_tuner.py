@@ -39,7 +39,9 @@ All gains p, i, d must be nonnegative finite magnitudes in continuous parallel f
 with seconds as the time base: u = bias + direction*(p*error + i*integral(error dt)
 + d*filtered_derivative). Direction is supplied by the process gain sign outside this
 response. Never emit actuator commands or device writes. Respect runtime gain limits
-and increase ratios. A DONE status is a suggestion; the program verifies the entire
+and increase ratios. Violations reject the entire proposal without clipping or
+simulation. Use rejection reasons in the history to submit a complete valid proposal.
+A DONE status is a suggestion; the program verifies the entire
 task again. Output only JSON with p, i, d, analysis_summary, and status (TUNING or DONE).
 Give a brief engineering rationale, not a chain of reasoning."""
         return self.client.request_json(

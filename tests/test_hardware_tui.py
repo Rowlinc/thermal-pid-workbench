@@ -442,7 +442,8 @@ class HardwareTuiLoopTests(unittest.TestCase):
                         controller=controller,
                     )
 
-        self.assertIn("SET2 P:6.0 I:0.8 D:0.08", sent_commands)
+        self.assertFalse(any(cmd.startswith("SET2 P:") for cmd in sent_commands))
+        self.assertFalse(any(cmd.startswith("SET P:1.3") for cmd in sent_commands))
 
     def test_hardware_loop_stops_without_fallback_when_user_stops_during_llm(self):
         controller = SimulationController()
