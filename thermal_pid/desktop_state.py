@@ -51,7 +51,7 @@ LABELS = {
     'max_increase_ratio':'最大增长倍数', 'guardrail_policy':'护栏策略',
     'p':'比例 Kp', 'i':'积分 Ki', 'd':'微分 Kd', 'file':'CSV 文件路径',
     'time_unit':'数据时间单位', 'time':'时间列', 'temperature':'温度列', 'output':'输出列',
-    'rounds':'每组最大调优轮数', 'compare_original':'运行三组对照', 'include':'参与候选',
+    'rounds':'每组最大调优轮数', 'compare_original':'显示原辨识公式参考', 'include_corrected_legacy_route':'混合路线：修正初值＋旧版调优', 'include':'参与候选',
     'simc_lambda_s':'SIMC 响应时间 λ（秒）', 'enabled':'启用大模型',
     'provider':'API 协议', 'base_url':'服务地址', 'model':'模型名称',
     'credentials_file':'密钥文件', 'api_key_env':'密钥环境变量', 'timeout_s':'通信超时（秒）',

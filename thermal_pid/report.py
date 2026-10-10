@@ -59,6 +59,7 @@ def write_report(result, directory, save_csv=True):
                     "route_family": arm.get('family'),
                     "final_selected_route": (result.get('selection') or {}).get('selected_route'),
                     "used_legacy_route": (result.get('selection') or {}).get('used_legacy_route'),
+                    "used_legacy_tuning_core": (result.get('selection') or {}).get('used_legacy_tuning_core'),
                     **arm["final"]["metrics"],
                 }
                 for arm in result["arms"]

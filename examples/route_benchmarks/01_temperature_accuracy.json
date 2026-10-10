@@ -1,0 +1,39 @@
+// 离线PID测试配置：未列项使用程序公共默认值，不读取根project.json的私有设置。
+// 修改冒号右侧的值；test不连接设备；密钥保存在项目根config.json。
+{
+  // 运行模式：test=只计算参数并仿真；use=仿真合格后通过配置的设备接口接入。初学先用 test。
+  "mode": "test",
+  // 可选的大模型建议。默认关闭，传统 Z-N/SIMC 整定仍可运行。启用后会将模型和仿真摘要发到指定 API。
+  "llm": {
+    // 是否使用 LLM：false=纯传统算法比较；true=旧版、Z-N和SIMC各条适用路线分别调优，然后统一完整仿真和跨路线选优。调用次数随启用路线和轮次增加。
+    "enabled": true,
+    // 本地密钥 JSON 文件路径，相对于本配置目录，读取其中 LLM_API_KEY；不要将真实密钥写到本文件或发布到 GitHub。
+    "credentials_file": "../../config.json",
+    // 仅官方 DeepSeek 地址使用：disabled=关闭思考模式；enabled=开启；provider_default=不发送此设置，使用服务默认。
+    "deepseek_thinking": "disabled",
+    // 单次回复的 token 上限，正整数；太小可能使 JSON 不完整，增大会增加潜在耗时和费用。
+    "max_output_tokens": 4096,
+    // 一次建议请求的最大尝试次数，包括首次，例如 2=首次失败后最多再试一次。
+    "max_attempts": 1,
+    // API 网络超时设置，单位秒；网络失败后可能重试或切换 HTTP 传输，不等于整次调优的总耗时上限。
+    "timeout_s": 60
+  },
+  // LLM 调优轮数、曲线抽样和停止条件；LLM 关闭时不执行这些迭代。
+  "tuning": {
+    // 默认 true：纳入旧版完整连续调优路线，作为跨路线选优的保底候选。关闭则不具备相对旧版的保底比较。LLM关闭时只比较旧版初始化；不适用或运行失败会明确记录。
+    "include_legacy_route": true,
+    // 每组最多向 LLM 请求多少轮参数建议，正整数；比较三组时最多为 3×轮数，可能另有失败重试。
+    "rounds": 4,
+    // 发送给 LLM 的响应曲线抽样量，至少 5 点；这是抽样目标，实际数量可能略多，不会缩短完整仿真。
+    "samples_per_round": 60,
+    // 启用LLM时，额外把修正Z-N初值交给保留的旧版连续调优核心，纳入混合路线比较；默认true。最终会明确标注混合路线，不能将其当作纯新版LLM策略的收益。关闭LLM、无Z-N候选或不适用时不运行。增加最多rounds次API建议请求，所有参数仍经护栏和完整任务复测。
+    "include_corrected_legacy_route": true
+  },
+  // 结果保存设置。
+  "output": {
+    // 结果根目录，相对于本配置文件目录；每次运行自动建立独立时间戳子目录，在其中保存 report.html、pid.json、summary.json 等，不覆盖历史结果。
+    "directory": "../../results/route_benchmarks/01_temperature_accuracy"
+  },
+  // 本次实验的名称，用来区分不同任务，可改成自己方便辨认的名字。
+  "name": "常规升温30至100_精度优先"
+}

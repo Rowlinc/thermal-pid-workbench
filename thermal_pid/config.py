@@ -91,6 +91,7 @@ DEFAULTS = {
         "average_error_threshold_c": 1.2,
         "compare_original": True,
         "include_legacy_route": True,
+        "include_corrected_legacy_route": True,
         "selection_priority": "accuracy",
     },
     "llm": {
@@ -310,6 +311,7 @@ def validate(cfg):
         "llm.json_output",
         "tuning.compare_original",
         "tuning.include_legacy_route",
+        "tuning.include_corrected_legacy_route",
         "device.write_enabled",
         "device.restore_on_fault",
         "output.save_csv",

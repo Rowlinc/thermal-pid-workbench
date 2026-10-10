@@ -16,7 +16,19 @@ class ConfiguredTuner:
 Use the provided model, physical output units, sampling interval and evaluation constraints.
 The supplied gains are an already tuned starting point. Preserve useful integral action;
 do not restart a compulsory P-only tuning sequence. Seek qualified trials first, then
-the context.selection_priority objective: accuracy prioritizes full-task IAE then
+the context.selection_priority objective. Passing acceptance limits is not evidence
+that the gains are optimal. If a starting trial is eligible, still propose one
+moderate, informative gain change directed at the objective, using the runtime
+increase limits. Preserve useful integral action and use measured feedback to
+choose the next direction. For smooth priority with zero overshoot, improve the
+next objective (output total variation), instead of treating zero overshoot as
+a reason to stop. When saturated, reason about actuator range and slew limits:
+higher gains may not speed up the initial response and may worsen overshoot.
+Do not return unchanged gains with DONE on the first request merely because
+all limits pass. Use DONE only after at least two distinct evaluated proposals
+in the supplied history fail to improve the selected objective, or after a
+justified optimum is supported by measurements. Never invent trial results.
+Accuracy prioritizes full-task IAE then
 output total variation; smooth prioritizes overshoot then output total variation;
 speed prioritizes settling time then IAE. A configured absolute
 process-variable bound is separate from the overshoot percentage requirement.

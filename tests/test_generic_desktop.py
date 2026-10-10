@@ -221,7 +221,7 @@ def test_complete_llm_workflow_via_local_api(tmp_path):
         cfg['tuning']['rounds']=1
         (tmp_path/'config.json').write_text(json.dumps({'LLM_API_KEY':'test-only-key'}))
         result=plan(cfg,tmp_path)
-        assert len(requests)==4  # old complete engine + each of the three new routes
+        assert len(requests)==5  # old engine + three pure new routes + corrected-initial old engine
         assert all(a['history'] and a['history'][0].get('applied_pid') for a in result['arms'] if a.get('role')=='route')
         assert 'test-only-key' not in json.dumps(result)
     finally:server.shutdown();server.server_close()

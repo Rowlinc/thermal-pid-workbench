@@ -90,6 +90,7 @@ COMMENTS = {
     'tuning.average_error_threshold_c': '提前停止使用的完整任务平均绝对温差阈值，单位 °C，计算为 IAE/仿真时长；还必须满足全部评价门槛。',
     'tuning.compare_original': '是否额外显示原辨识 Z-N 公式参考。该参考不经过 LLM，不等于旧版完整路线；关闭此项不会关闭旧版保底路线。',
     'tuning.include_legacy_route': '默认 true：纳入旧版完整连续调优路线，作为跨路线选优的保底候选。关闭则不具备相对旧版的保底比较。LLM关闭时只比较旧版初始化；不适用或运行失败会明确记录。',
+    'tuning.include_corrected_legacy_route': '启用LLM时，额外把修正Z-N初值交给保留的旧版连续调优核心，纳入混合路线比较；默认true。最终会明确标注混合路线，不能将其当作纯新版LLM策略的收益。关闭LLM、无Z-N候选或不适用时不运行。增加最多rounds次API建议请求，所有参数仍经护栏和完整任务复测。',
     'tuning.selection_priority': '所有路线先满足硬约束，再按同一标准选优：accuracy=IAE优先；smooth=超调和输出平稳优先；speed=调节时间优先。同分保留旧版。',
     'llm': '可选的大模型建议。默认关闭，传统 Z-N/SIMC 整定仍可运行。启用后会将模型和仿真摘要发到指定 API。',
     'llm.enabled': '是否使用 LLM：false=纯传统算法比较；true=旧版、Z-N和SIMC各条适用路线分别调优，然后统一完整仿真和跨路线选优。调用次数随启用路线和轮次增加。',

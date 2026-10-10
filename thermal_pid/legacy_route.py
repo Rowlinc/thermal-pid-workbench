@@ -20,6 +20,7 @@ def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
 
     history = []
     trials = [initial]
+    route_label = '混合路线（修正初值＋旧版核心）' if initial.get('name') == 'corrected_legacy_route' else '旧版完整路线'
     priority = cfg['tuning'].get('selection_priority', 'accuracy')
 
     class Environment(BaseTuningEnvironment):
@@ -31,7 +32,7 @@ def run_legacy_route(cfg, initial, tuner, cancelled=None, progress=None):
         def collect_samples(self):
             checkpoint(cancelled)
             if progress:
-                progress({'type': 'progress', 'message': '旧版完整路线：连续采样并调优'})
+                progress({'type': 'progress', 'message': route_label + '：连续采样并调优'})
             batch = []
             for _ in range(cfg['tuning']['samples_per_round']):
                 checkpoint(cancelled)

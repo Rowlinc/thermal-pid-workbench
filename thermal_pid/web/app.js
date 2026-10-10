@@ -14,6 +14,7 @@ const groupName = (n) =>
   ({
     original_zn: "原辨识公式参考（未调优）",
     legacy_route: "旧版完整调优路线",
+      corrected_legacy_route: "混合路线：修正初值＋旧版调优",
     corrected_zn: "修正 Z-N PID 路线",
     zn_pi_route: "修正 Z-N PI 路线",
     simc_route: "SIMC PI 路线",
@@ -568,10 +569,11 @@ function renderChart() {
       $("#history-list").before(stats);
     }
     const tagged = rows.filter(r => r.status === "completed" && r.selection?.qualified);
+    const hybrid = tagged.filter(r => r.selection.family === "hybrid").length;
     const legacy = tagged.filter(r => r.selection.used_legacy_route === true).length;
     const comparable = tagged.filter(r => r.selection.baseline_comparison_available).length;
     const improved = tagged.filter(r => r.selection.strictly_improved_vs_legacy).length;
-    stats.textContent = `有路线标记的合格运行 ${tagged.length} 次：旧版被选中 ${legacy} 次，新路线被选中 ${tagged.length - legacy} 次。其中完成旧版完整对照 ${comparable} 次，新路线按所选标准严格改善 ${improved} 次。不同模型和选优标准的运行分别理解；旧记录没有路线标记，不计入以上统计。`;
+    stats.textContent = `有路线标记的合格运行 ${tagged.length} 次：旧版被选中 ${legacy} 次，新路线被选中 ${tagged.length - legacy - hybrid} 次，混合路线被选中 ${hybrid} 次。其中完成旧版完整对照 ${comparable} 次，新路线按所选标准严格改善 ${improved} 次。不同模型和选优标准的运行分别理解；旧记录没有路线标记，不计入以上统计。`;
   $("#history-list").innerHTML = rows.length
     ? rows
         .map(

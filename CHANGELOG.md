@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — 2026-10-10
+
+- 新增10份完整路线对比配置与合成CSV，支持批次选取route_benchmarks。
+- 批次报告改用完整旧版路线作对照，明确原公式参考和selected别名，排除未形成完整对照的胜率统计。
+- 修正LLM提示：任务达标后继续按所选目标尝试有证据的改进，避免首轮仅因达标就原参DONE；微调仍经护栏、完整任务仿真和保留最佳参数。
+
+- 对齐初始化实验发现旧版连续调优仍有优势，增加可关闭的corrected_legacy_route混合候选；明确标记family=hybrid和used_legacy_tuning_core，不将其归功于纯新版LLM策略。
+- 同分依次优先旧版保底、纯新路线、混合路线，避免重复参数冒充改进；历史分别统计三种来源。
+
 ## 0.4.1 — 2026-10-10
 
 - Run the original continuous tuning core on the common configured plant/controller, retain its checked initialization, applied proposals and actual final PID as a baseline route.

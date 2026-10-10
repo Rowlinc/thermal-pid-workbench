@@ -307,10 +307,30 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
             progress({'type':'arm','name':arm['name'],'pid':best['pid'],
                       'metrics':best['metrics'],'history':history,
                       'samples':best['samples'][::max(1,len(best['samples'])//500)]})
+    hybrid_status = 'disabled'
+    if cfg['tuning'].get('include_corrected_legacy_route', True):
+        seed = next((c for c in candidates if c['name'] == 'ZN_PID'), None)
+        hybrid_status = 'llm_disabled' if not cfg['llm']['enabled'] else 'unavailable'
+        if cfg['llm']['enabled'] and seed is not None and m['K'] > 0:
+            try:
+                from .legacy_route import run_legacy_route
+                initial = dict(seed, name='corrected_legacy_route')
+                best, history, execution = run_legacy_route(cfg, initial, tuner, cancelled, progress)
+                hybrid_status = 'completed' if execution['completed'] else 'incomplete'
+                results.append(dict(name='corrected_legacy_route', label='混合路线：修正初值＋旧版连续调优',
+                    initial_method='ZN_PID', initial=initial, final=best, history=history,
+                    llm_enabled=True, role='route', family='hybrid', execution=execution))
+                if progress:
+                    progress({'type':'arm','name':'corrected_legacy_route','pid':best['pid'],
+                        'metrics':best['metrics'],'history':history,
+                        'samples':best['samples'][::max(1,len(best['samples'])//500)]})
+            except Exception as exc:
+                checkpoint(cancelled)
+                unavailable.append({'name':'corrected_legacy_route','reason':type(exc).__name__})
     routes = [r for r in results if r.get('role') == 'route']
     # On an exact tie retain the old baseline; adding a duplicate does not count
     # as an improvement. Eligibility and the selected objective are identical.
-    winner = min(routes, key=lambda r: (key(r['final']), r['family'] != 'legacy'))
+    winner = min(routes, key=lambda r: (key(r['final']), {'legacy':0, 'new':1, 'hybrid':2}[r['family']]))
     final = winner['final']
     qualified = final['metrics']['eligible']
     inherited = winner['family'] == 'legacy'
@@ -319,11 +339,14 @@ def plan(cfg, base, tuner=None, identified=None, cancelled=None, progress=None):
     reason = ('新路线没有在当前评价标准下超过旧版，保留旧版路线。' if inherited else
         '新路线按当前评价标准优于本次旧版候选。' if legacy_reference and key(final) < key(legacy_reference['final']) else
         '旧版路线未参与／不可用，本次只在可用的新路线中选优。')
+    if winner['family'] == 'hybrid':
+        reason = '本次采用混合路线：修正 Z-N 初值，再使用旧版连续调优核心；优势不能归因于纯新版 LLM 策略。'
     if not qualified:
         reason = '所有已验证路线均未达标，不输出可用 PID。'
     decision = dict(selected_route=winner['name'], selected_label=winner['label'], family=winner['family'],
         used_legacy_route=inherited if qualified else None, priority=priority, reason=reason,
-        qualified=qualified, legacy_status=legacy_status,
+        used_legacy_tuning_core=winner['family'] in ('legacy','hybrid') if qualified else None,
+        hybrid_status=hybrid_status, qualified=qualified, legacy_status=legacy_status,
         legacy_reference_qualified=bool(legacy_reference and legacy_reference['final']['metrics']['eligible']),
         baseline_comparison_available=legacy_status == 'completed',
         strictly_improved_vs_legacy=bool(qualified and legacy_status == 'completed' and key(final) < key(legacy_reference['final'])),

@@ -100,3 +100,7 @@ python -m venv .venv
 安装包使用明确资源清单，不包含本地密钥、生产数据和 results。
 Windows 窗口需要 Edge WebView2 Runtime；缺少时可安装微软运行时或使用浏览器模式。
 构建方式参考 [pywebview 官方打包说明](https://pywebview.flowrl.com/guide/freezing) 与 [PyInstaller 官方说明](https://pyinstaller.org/en/stable/usage.html)。
+
+### 0.4.2 混合路线
+
+混合路线（corrected_legacy_route）把修正Z-N初值交给旧版连续调优核心，在完整任务复测后与其它路线一起选优。它保留旧策略的有效部分，界面与历史单独标记，不能将胜出归因于纯新版LLM策略。tuning.include_corrected_legacy_route默认开启，可在可视化配置中关闭；LLM关闭时不运行。原版完整路线仍保持原初始化作对照。所有参数继续经过pid_safety，现场use模式仍执行写前增幅检查和任务门槛。

@@ -19,7 +19,7 @@ from .process import public_config
 WEB = Path(__file__).with_name('web')
 RESOURCES = {'firmware.cpp','config.example.json','docs/zh-CN/MATLAB_GUIDE.md'}
 RESULT_FILES = {'report.html', 'summary.json', 'pid.json', 'metrics.csv',
-                'original_zn.csv', 'corrected_zn.csv', 'legacy_route.csv', 'zn_pi_route.csv',
+                'original_zn.csv', 'corrected_zn.csv', 'legacy_route.csv','corrected_legacy_route.csv', 'zn_pi_route.csv',
                 'simc_route.csv', 'user_route.csv', 'selected.csv', 'temperature_c.svg',
                 'output.svg', 'device_audit.json', 'legacy_result.json', 'events.json', 'samples.csv'}
 
@@ -143,7 +143,7 @@ class DesktopServer:
                             if any(j.status=='running' for j in app.manager.jobs.values()):
                                 raise ValueError('请在运行结束后执行诊断')
                             import importlib.util
-                            checks=[dict(name='应用版本',status='PASS',detail='0.4.1 · Python '+sys.version.split()[0]),
+                            checks=[dict(name='应用版本',status='PASS',detail='0.4.2 · Python '+sys.version.split()[0]),
                                     dict(name='项目配置',status='PASS',detail='模型、单位、任务与限制已通过配置检查'),
                                     dict(name='LLM密钥',status='PASS' if app.state.api_key() else 'WARN',detail='已配置（不显示）' if app.state.api_key() else '未配置；关闭LLM仍可仿真')]
                             for label,module in [('串口支持','serial'),('OpenAI SDK','openai'),('Anthropic SDK','anthropic')]:

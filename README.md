@@ -403,3 +403,15 @@ Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
 旧版连续调优、Z-N PID、Z-N PI、SIMC PI 分别调优，再经过统一护栏与全任务仿真进行最终选优。结果明确标注选中路线；同分保留旧版。运行历史统计旧版被选次数及新路线严格改善次数。
 `tuning.selection_priority` 支持 `accuracy`（累计误差优先，默认）、`smooth`（平稳优先）、`speed`（响应速度优先）。`include_legacy_route` 默认开启，`compare_original` 仅控制原辨识公式参考显示。旧版不适用、未完成或 LLM 关闭时会说明对照范围。
 详细说明见 [桌面使用指南](docs/DESKTOP.md)。更多路线会增加 LLM 调用；保证仅针对本次配置模型和选优标准。
+
+### 完整路线多场景复测
+
+[examples/route_benchmarks](examples/route_benchmarks/README.md) 提供温度、压力、流量、噪声、扰动、慢执行器、两节点传热、CSV辨识和思考模式复验的10份配置及完整运行命令。每次批次生成独立目录，保留全部路线和未达标结果；汇总明确区分旧版完整连续调优、原公式参考与最终选择。
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_comparison_suite.py --scenario-set route_benchmarks --llm on
+```
+
+先按前文创建环境、安装 `.[llm]` 并在根目录 `config.json` 保存密钥；关闭API调用时将上面的 `--llm on` 改为 `--llm off`。结果不随源码上传。
+
+0.4.2纳入明确标识的混合候选：修正Z-N初值后使用保留的旧版连续调优核心。`tuning.include_corrected_legacy_route`可控制是否运行，默认开启，LLM关闭时跳过。最终来源分为旧版完整路线、纯新路线、混合路线；报告与历史分别记录，混合路线胜出不会被归因于纯新版LLM策略。

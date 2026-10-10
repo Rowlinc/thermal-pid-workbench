@@ -186,3 +186,5 @@ This guide concerns pid_project.py; legacy entries keep their own configuration.
 ```
 
 Tests do not call external LLMs or real hardware. `results/`, `config.json`, `.env` and `*.local.json` are ignored. Keep credentials and production data private. Retain [LICENSE](LICENSE), [NOTICE](NOTICE) and upstream attribution; see [CHANGELOG](CHANGELOG.md) and [CONTRIBUTING](CONTRIBUTING.md).
+
+Version 0.4.2 also evaluates an explicitly labeled hybrid route: corrected Z-N initialization followed by the retained original continuous tuning engine. It can be disabled with `tuning.include_corrected_legacy_route=false` and is skipped when LLM is off. Route provenance and history distinguish legacy, pure new and hybrid selection; hybrid gains must not be attributed solely to the new LLM strategy. The reproducible configurations are in `examples/route_benchmarks`.

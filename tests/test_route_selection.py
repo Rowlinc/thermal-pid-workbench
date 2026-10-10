@@ -101,3 +101,30 @@ def test_history_keeps_legacy_provenance_after_restart(tmp_path):
     restored=JobManager(DesktopState(tmp_path))
     assert restored.history()[0]['selection']['selected_route']=='legacy_route'
     assert restored.get(job.id).view()['selection']['used_legacy_route'] is True
+
+
+def test_corrected_initial_legacy_core_can_win_without_claiming_pure_new_strategy(tmp_path):
+    cfg=deepcopy(DEFAULTS);cfg['llm']['enabled']=True
+    def routes(cfg,initial,tuner,*args):
+        if initial.get('name')=='corrected_legacy_route':
+            return simulate(cfg,{'p':16,'i':.8,'d':60}),[],{'completed':True}
+        return initial,[],{'completed':True}
+    with patch('thermal_pid.legacy_route.run_legacy_route',side_effect=routes):
+        result=plan(cfg,tmp_path,UnavailableTuner())
+    choice=result['selection']
+    assert choice['selected_route']=='corrected_legacy_route'
+    assert choice['family']=='hybrid'
+    assert choice['used_legacy_route'] is False and choice['used_legacy_tuning_core'] is True
+    assert '旧版连续调优核心' in choice['reason']
+    assert rank(result['recommended'])==min(rank(a['final']) for a in result['arms'] if a.get('role')=='route')
+
+
+def test_hybrid_exact_tie_with_pure_new_does_not_claim_an_added_improvement(tmp_path):
+    cfg=deepcopy(DEFAULTS);cfg['llm']['enabled']=True
+    cfg['tuning']['include_legacy_route']=False
+    def unchanged(cfg,initial,tuner,*args):return initial,[],{'completed':True}
+    with patch('thermal_pid.legacy_route.run_legacy_route',side_effect=unchanged):
+        result=plan(cfg,tmp_path,UnavailableTuner())
+    assert result['selection']['selected_route']=='corrected_zn'
+    assert result['selection']['family']=='new'
+    assert result['selection']['used_legacy_tuning_core'] is False
