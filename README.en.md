@@ -1,5 +1,7 @@
 # Thermal PID Workbench
 
+Download the Windows portable ZIP from [GitHub Releases](https://github.com/Rowlinc/thermal-pid-workbench/releases/latest), extract it and open the app. Gitee mirrors the source and version tags; use the same link for binaries.
+
 Version 0.4 adds a visual Windows desktop application for single-loop temperature, pressure, flow, level, speed and custom process variables. Run `PIDWorkbench.exe`, or install `.[full,desktop]` in a virtual environment and run `desktop_app.py`.
 Runs are viewed directly inside the app and retained in persistent history, including configuration, response curves, PID, metrics, guardrails and LLM rounds. HTML/CSV/JSON are optional exports.
 Settings, CSV uploads/column mapping, model parameters, custom Python models, LLM API credentials, device adapters and original serial/Simulink workflows are available visually.

@@ -8,6 +8,8 @@
 
 ## 可视化应用：推荐的使用方式
 
+Windows 用户先到 [GitHub Releases 下载区](https://github.com/Rowlinc/thermal-pid-workbench/releases/latest)下载便携 ZIP，解压后打开应用；Gitee 同步源码和版本标签，应用下载使用同一链接。
+
 已打包 Windows 应用的用户直接双击 `PIDWorkbench.exe`。不用编辑 JSON，也不用创建 Python 环境。
 在“任务与对象”选择温度、压力、流量或液位示例，再按实际对象修改模型、任务、执行器与评价要求。
 模型来源支持已知参数、历史 CSV 列选择、离线辨识、自定义 Python；原 Simulink 和串口流程也有独立可视化配置。
