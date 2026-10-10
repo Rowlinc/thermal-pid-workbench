@@ -7,12 +7,18 @@ class ConfiguredTuner:
     def __init__(self, client):
         self.client = client
 
+    @property
+    def last_request_diagnostic(self):
+        return getattr(self.client, 'last_request_diagnostic', {})
+
     def analyze(self, prompt_data, history_text, tuning_mode=None, prompt_context=None):
         system = """You propose PID parameters for a single-loop process in OFFLINE simulation.
 Use the provided model, physical output units, sampling interval and evaluation constraints.
 The supplied gains are an already tuned starting point. Preserve useful integral action;
 do not restart a compulsory P-only tuning sequence. Seek qualified trials first, then
-smaller full-task IAE, then smaller output total variation. A configured absolute
+the context.selection_priority objective: accuracy prioritizes full-task IAE then
+output total variation; smooth prioritizes overshoot then output total variation;
+speed prioritizes settling time then IAE. A configured absolute
 process-variable bound is separate from the overshoot percentage requirement.
 Use the specified process name and unit (temperature, pressure, flow, level or custom).
 Legacy keys containing temperature or _c refer to that process variable in its configured

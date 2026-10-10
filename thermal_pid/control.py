@@ -247,12 +247,16 @@ def simulate(cfg, pid, cancelled=None):
     }
 
 
-def rank(trial):
+def rank(trial, priority="accuracy"):
     m = trial["metrics"]
+    settling = m["settling_time_s"] if m["settling_time_s"] is not None else math.inf
+    objectives = {
+        'accuracy': (m['iae_c_s'], m['output_tv'], settling),
+        'smooth': (m['overshoot_pct'], m['output_tv'], m['iae_c_s'], settling),
+        'speed': (settling, m['iae_c_s'], m['output_tv']),
+    }
     return (
         not m["eligible"],
         len(m["failures"]),
-        m["iae_c_s"],
-        m["output_tv"],
-        m["settling_time_s"] if m["settling_time_s"] is not None else math.inf,
+        *objectives[priority],
     )

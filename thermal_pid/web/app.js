@@ -12,9 +12,13 @@ const esc = (s) =>
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const groupName = (n) =>
   ({
-    original_zn: "原辨识 Z-N",
-    corrected_zn: "修正辨识 Z-N",
-    selected: "选优组",
+    original_zn: "原辨识公式参考（未调优）",
+    legacy_route: "旧版完整调优路线",
+    corrected_zn: "修正 Z-N PID 路线",
+    zn_pi_route: "修正 Z-N PI 路线",
+    simc_route: "SIMC PI 路线",
+    user_route: "用户 PID 路线",
+    selected: "最终跨路线选优",
   })[n] || n;
 const failureText = (n) =>
   ({
@@ -134,13 +138,14 @@ function field(f) {
     f = { ...f, choices: csvColumns };
   const value = get(f.path),
     id = "field-" + f.path.replaceAll(".", "-");
+  const choiceText = c => f.path === 'tuning.selection_priority' ? ({accuracy:'累计误差优先',smooth:'平稳优先',speed:'响应速度优先'})[c] || c : words[c] || c;
   let control = "";
   if (f.type === "boolean") {
     control = `<input id="${id}" data-field="${esc(f.path)}" type="checkbox" ${value ? "checked" : ""}>`;
   } else if (f.type === "array" && f.choices) {
     control = `<select id="${id}" data-field="${esc(f.path)}" multiple>${f.choices.map((c) => `<option value="${esc(c)}" ${value.includes(c) ? "selected" : ""}>${esc(words[c] || c)}</option>`).join("")}</select>`;
   } else if (f.choices) {
-    control = `<select id="${id}" data-field="${esc(f.path)}">${f.choices.map((c) => `<option value="${esc(c)}" ${value === c ? "selected" : ""}>${esc(words[c] || c)}</option>`).join("")}</select>`;
+    control = `<select id="${id}" data-field="${esc(f.path)}">${f.choices.map((c) => `<option value="${esc(c)}" ${value === c ? "selected" : ""}>${esc(choiceText(c))}</option>`).join("")}</select>`;
   } else if (f.type === "array") {
     control = `<textarea id="${id}" data-field="${esc(f.path)}" rows="3" placeholder="每行一个值">${esc((value || []).join("\n"))}</textarea>`;
   } else {
@@ -309,7 +314,7 @@ function drawJob(j) {
   const selected = j.metrics.find((m) => m.name === "selected"),
     unit = j.process?.unit || state.project.process.unit;
   $("#result-summary").innerHTML = [
-    ["选中初始方法", j.selected_method || "原流程"],
+    ["最终选中路线", j.selection?.selected_label || j.selected_method || "原流程／旧记录"],
     [
       "最终建议",
       j.final_pid ? pidText(j.final_pid) : active ? "运行中…" : "无合格建议",
@@ -342,6 +347,11 @@ function drawJob(j) {
       (p.parameter_time_unit === "min" ? "分钟" : "秒") +
       "。过程方向已计入。";
   } else document.querySelector("#exported-pid")?.remove();
+  let routeNote = $("#selection-note");
+  if (j.selection) {
+    if (!routeNote) { routeNote = document.createElement("p"); routeNote.id = "selection-note"; $("#result-summary").after(routeNote); }
+    routeNote.textContent = `${j.selection.used_legacy_route ? "本次沿用旧版路线。" : ""}${j.selection.reason} 旧版对照状态：${({completed:"完整调优已完成",llm_disabled:"LLM关闭，仅初始化",unavailable:"不可用",disabled:"未开启",incomplete:"未完成"})[j.selection.legacy_status] || j.selection.legacy_status}；选优标准：${({accuracy:"累计误差优先",smooth:"平稳优先",speed:"响应速度优先"})[j.selection.priority] || j.selection.priority}。`;
+  } else routeNote?.remove();
   $("#downloads").innerHTML = j.result_available
     ? '<button class="secondary" id="restore-run">载入本次配置再次测试</button><details><summary>可选导出 / 分享</summary> ' +
       [
@@ -550,13 +560,23 @@ function renderChart() {
     $("#hover-text").textContent = "";
   };
 }
-async function loadHistory() {
-  const rows = await api("/api/history");
+  async function loadHistory() {
+    const rows = await api("/api/history");
+    let stats = $("#route-statistics");
+    if (!stats) {
+      stats = document.createElement("p"); stats.id = "route-statistics";
+      $("#history-list").before(stats);
+    }
+    const tagged = rows.filter(r => r.status === "completed" && r.selection?.qualified);
+    const legacy = tagged.filter(r => r.selection.used_legacy_route === true).length;
+    const comparable = tagged.filter(r => r.selection.baseline_comparison_available).length;
+    const improved = tagged.filter(r => r.selection.strictly_improved_vs_legacy).length;
+    stats.textContent = `有路线标记的合格运行 ${tagged.length} 次：旧版被选中 ${legacy} 次，新路线被选中 ${tagged.length - legacy} 次。其中完成旧版完整对照 ${comparable} 次，新路线按所选标准严格改善 ${improved} 次。不同模型和选优标准的运行分别理解；旧记录没有路线标记，不计入以上统计。`;
   $("#history-list").innerHTML = rows.length
     ? rows
         .map(
           (r) =>
-            `<div class="history-row"><div><strong>${esc(r.name || r.id)} · ${esc(r.process?.name || "")} ${esc(r.target ?? "")} ${esc(r.process?.unit || "")}</strong><small>${esc(r.id)} · ${esc(r.workflow)} · ${new Date(r.started * 1000).toLocaleString()} · ${esc(statusWords[r.status] || r.status)}</small></div><button data-history="${esc(r.id)}" class="secondary">查看结果 →</button></div>`,
+             `<div class="history-row"><div><strong>${esc(r.name || r.id)} · ${esc(r.process?.name || "")} ${esc(r.target ?? "")} ${esc(r.process?.unit || "")}</strong><small>${esc(r.id)} · ${esc(r.workflow)} · ${new Date(r.started * 1000).toLocaleString()} · ${esc(statusWords[r.status] || r.status)}</small><p>${r.selection ? esc(r.selection.selected_label + " · " + r.selection.reason) : "旧记录：没有路线来源标记"}</p></div><button data-history="${esc(r.id)}" class="secondary">查看结果 →</button></div>`,
         )
         .join("")
     : '<p class="empty">第一次运行后，这里将保存你的记录。</p>';

@@ -154,10 +154,12 @@ def test_fail_requirements_no_recommendation(tmp_path):
 def test_known_model_without_original_comparison_needs_no_probe(tmp_path):
     cfg = config()
     cfg["tuning"]["compare_original"] = False
+    cfg['tuning']['include_legacy_route'] = False
     cfg["actuator"].update(max=1, max_rate_per_s=0.1)
     cfg["model"]["K"] = 100
     result = plan(cfg, tmp_path)
-    assert len(result["arms"]) == 1 and result["arms"][0]["name"] == "selected"
+    assert len([a for a in result['arms'] if a.get('role') == 'route']) == 3
+    assert result['arms'][-1]['name'] == 'selected'
 
 
 def test_llm_bad_proposal_keeps_best(tmp_path):
@@ -169,7 +171,7 @@ def test_llm_bad_proposal_keeps_best(tmp_path):
     cfg["llm"]["enabled"] = True
     cfg["tuning"]["rounds"] = 1
     result = plan(cfg, tmp_path, Tuner())
-    arm = next(a for a in result["arms"] if a["name"] == "selected")
+    arm = next(a for a in result["arms"] if a["name"] == result['selection']['selected_route'])
     assert arm["history"][0]["guard_notes"]
     assert arm["final"]["metrics"]["eligible"]
     assert arm["final"]["metrics"]["iae_c_s"] <= arm["initial"]["metrics"]["iae_c_s"]
@@ -184,7 +186,7 @@ def test_unavailable_llm_keeps_qualified_initial(tmp_path):
     cfg["llm"]["enabled"] = True
     result = plan(cfg, tmp_path, Tuner())
     assert result["recommended"]
-    assert all(a["history"][0]["event"] == "llm_unavailable" for a in result["arms"])
+    assert all(a["history"][0]["event"] == "llm_unavailable" for a in result["arms"] if a.get('role') == 'route' and a['family'] == 'new')
 
 
 def test_final_llm_gain_checked_against_start(tmp_path):

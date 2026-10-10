@@ -68,7 +68,7 @@ def test_custom_file_generic_value_manual_and_cancel(tmp_path):
     source.write_text("from dataclasses import dataclass\n@dataclass\nclass Model:\n    value:float=.3\n    def step(self,u,dt):\n        self.value+=(.3+.02*(u-20)-self.value)*dt/12\n        return self.value\ndef create_model(cfg):return Model()\n")
     cfg=pressure();cfg['model'].update(type='custom',source='manual',custom_factory=str(source)+':create_model')
     result=plan(cfg,tmp_path)
-    assert result['selected_method']=='USER_PID' and len(result['arms'])==1
+    assert result['selected_method']=='USER_PID' and len(result['arms'])==2
     with pytest.raises(Cancelled):plan(cfg,tmp_path,cancelled=lambda:True)
 
 def test_generic_device_units_and_payload():
@@ -207,8 +207,9 @@ def test_complete_llm_workflow_via_local_api(tmp_path):
         def do_POST(self):
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             requests.append(body)
-            trial=json.loads(body['messages'][-1]['content'])['current_trial']
-            content=json.dumps(dict(**trial['current_pid'],status='TUNING',analysis_summary='保持参数并验证完整任务'))
+            prompt=body['messages'][-1]['content']
+            pid=json.loads(prompt)['current_trial']['current_pid'] if prompt.startswith('{') else dict(p=1,i=.01,d=0)
+            content=json.dumps(dict(**pid,status='TUNING',analysis_summary='保持参数并验证完整任务'))
             chunk=dict(id='chat-test',object='chat.completion.chunk',created=1,model='mock',
                 choices=[dict(index=0,delta=dict(role='assistant',content=content),finish_reason=None)])
             value=('data: '+json.dumps(chunk)+'\n\ndata: [DONE]\n\n').encode()
@@ -220,7 +221,7 @@ def test_complete_llm_workflow_via_local_api(tmp_path):
         cfg['tuning']['rounds']=1
         (tmp_path/'config.json').write_text(json.dumps({'LLM_API_KEY':'test-only-key'}))
         result=plan(cfg,tmp_path)
-        assert len(requests)==3
-        assert all(a['history'] and a['history'][0].get('applied_pid') for a in result['arms'])
+        assert len(requests)==4  # old complete engine + each of the three new routes
+        assert all(a['history'] and a['history'][0].get('applied_pid') for a in result['arms'] if a.get('role')=='route')
         assert 'test-only-key' not in json.dumps(result)
     finally:server.shutdown();server.server_close()

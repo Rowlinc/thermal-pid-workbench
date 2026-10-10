@@ -355,9 +355,11 @@ Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
 
 - `original_zn`：原辨识函数＋Z-N PID，在当前统一框架中运行。
 - `corrected_zn`：修正辨识/已知模型＋Z-N PID。
-- `selected`：从Z-N PID、Z-N PI、SIMC PI中按评价要求选起点。
+- `legacy_route`：旧版完整连续调优核心，通过接口接入共享对象和控制器，作为保底候选。
+- `zn_pi_route`、`simc_route`：Z-N PI、SIMC PI 各自调优，初始表现较慢也不会被提前丢弃。
+- `selected`：全部路线调优并统一复测后的最终赢家；不再次调用 LLM。
 
-启用LLM后三组各自继续调优；若选优组选中Z-N PID且最终参数一致，它与修正组可以完全相同。该对照不是完整上游项目独立执行，不能从单次模型仿真推导所有化工对象上的优势。
+`original_zn` 仅是未调优的公式参考。启用 LLM 后，各条适用路线分别调优，最终按同一标准跨路线选择；同分保留旧版。界面、历史和导出明确记录旧版是否被选中。共享对象接口不等于运行原版专用温控模型，单次仿真不能证明所有真实对象上更优。
 
 `controller.guardrail_policy=auto` 默认在test初始公式和最终建议阶段检查有效数值/绝对范围，LLM每轮仍限制相对当前仿真参数的增幅；use保留相对实际设备参数及最终总增幅检查。`relative`可复现旧策略。护栏后的参数仍须仿真达标；配置的参数范围不等于现场安全边界。见[护栏说明](docs/GUARDRAILS.md)。
 
@@ -396,3 +398,8 @@ Copy-Item -LiteralPath project.json -Destination project.use-sim-llm.local.json
 测试不调用外部LLM或真实装置。也可使用安装后的命令 `thermal-pid`，但只有激活环境或使用 `.\.venv\Scripts\thermal-pid.exe` 时才保证运行本项目环境；新手建议继续使用本文完整Python路径。
 
 保留 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和上游归属。参见 [CHANGELOG](CHANGELOG.md)、[CONTRIBUTING](CONTRIBUTING.md)。
+## 0.4.1 调优路线说明
+
+旧版连续调优、Z-N PID、Z-N PI、SIMC PI 分别调优，再经过统一护栏与全任务仿真进行最终选优。结果明确标注选中路线；同分保留旧版。运行历史统计旧版被选次数及新路线严格改善次数。
+`tuning.selection_priority` 支持 `accuracy`（累计误差优先，默认）、`smooth`（平稳优先）、`speed`（响应速度优先）。`include_legacy_route` 默认开启，`compare_original` 仅控制原辨识公式参考显示。旧版不适用、未完成或 LLM 关闭时会说明对照范围。
+详细说明见 [桌面使用指南](docs/DESKTOP.md)。更多路线会增加 LLM 调用；保证仅针对本次配置模型和选优标准。

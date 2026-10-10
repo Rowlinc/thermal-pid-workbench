@@ -22,6 +22,20 @@ class BaseLLMProvider(ABC):
         self.model = model
         self.timeout = timeout
         self.request_options: Dict[str, Any] = {}
+        self.response_metadata: Dict[str, Any] = {}
+
+    def _record_choice(self, choice):
+        """Keep termination metadata and counts, never reasoning text."""
+        get = lambda obj, key: obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+        reason = get(choice, 'finish_reason')
+        if reason:
+            self.response_metadata['finish_reason'] = reason
+        delta = get(choice, 'delta')
+        for field in ('content', 'reasoning_content'):
+            value = get(delta, field)
+            if isinstance(value, str):
+                key = field + '_chars'
+                self.response_metadata[key] = self.response_metadata.get(key, 0) + len(value)
 
     @abstractmethod
     def execute_request(
@@ -48,6 +62,7 @@ class OpenAISDKProvider(BaseLLMProvider):
         on_chunk: Callable[[str], None],
         abort_check: Optional[Callable[[], bool]] = None,
     ) -> None:
+        self.response_metadata = {}
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=openai_msgs,
@@ -57,6 +72,9 @@ class OpenAISDKProvider(BaseLLMProvider):
         )
         accumulated = ""
         for chunk in resp:
+            usage = getattr(chunk, 'usage', None)
+            if usage is not None:
+                self.response_metadata['usage'] = usage.model_dump() if hasattr(usage, 'model_dump') else dict(usage)
             content_chunk = self._extract_chunk(chunk, accumulated)
             if content_chunk:
                 accumulated += content_chunk
@@ -68,6 +86,7 @@ class OpenAISDKProvider(BaseLLMProvider):
         choices = getattr(chunk, "choices", None) or []
         if not choices: return ""
         choice = choices[0]
+        self._record_choice(choice)
         delta = getattr(choice, "delta", None)
         if delta is not None:
             delta_content = getattr(delta, "content", None)
@@ -176,6 +195,7 @@ class HTTPFallbackProvider(BaseLLMProvider):
         return ""
 
     def _request_openai(self, msgs, on_chunk, abort_check):
+        self.response_metadata = {}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -196,7 +216,11 @@ class HTTPFallbackProvider(BaseLLMProvider):
             self._parse_stream(resp, on_chunk, abort_check, self._extract_openai)
 
     def _extract_openai(self, data: Dict[str, Any]) -> str:
+        if isinstance(data.get('usage'), dict):
+            self.response_metadata['usage'] = dict(data['usage'])
         choices = data.get("choices", [])
+        if choices:
+            self._record_choice(choices[0])
         if choices and "delta" in choices[0]:
             return choices[0]["delta"].get("content", "")
         return ""

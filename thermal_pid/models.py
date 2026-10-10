@@ -280,7 +280,7 @@ def identify(cfg, base):
             }
         )
     result["relative_rmse"] = quality
-    if data is None and cfg["tuning"]["compare_original"]:
+    if data is None and (cfg["tuning"]["compare_original"] or cfg['tuning'].get('include_legacy_route', True)):
         # Reference identifier sees the same configured virtual object, not a hidden demo.
         probe_cfg = deepcopy(cfg)
         probe_cfg["task"].update(

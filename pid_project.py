@@ -122,6 +122,8 @@ def main(argv=None):
         print(
             f"Selected initialization: {result['selected_method']}; {result['recommendation_status']}"
         )
+        if result.get('selection'):
+            print(f"Final route: {result['selection']['selected_label']}; {result['selection']['reason']}")
         for arm in result["arms"]:
             m = arm["final"]["metrics"]
             print(

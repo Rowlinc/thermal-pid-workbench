@@ -90,6 +90,8 @@ DEFAULTS = {
         "stable_rounds": 2,
         "average_error_threshold_c": 1.2,
         "compare_original": True,
+        "include_legacy_route": True,
+        "selection_priority": "accuracy",
     },
     "llm": {
         "enabled": False,
@@ -201,6 +203,7 @@ def validate(cfg):
     enum("controller.derivative_on", ("measurement", "error"))
     enum("controller.initialization", ("zero", "tracking"))
     enum("controller.guardrail_policy", ("auto", "relative"))
+    enum("tuning.selection_priority", ("accuracy", "smooth", "speed"))
     enum("llm.deepseek_thinking", ("disabled", "enabled", "provider_default"))
     enum("device.adapter", ("disabled", "simulated", "tcp", "serial", "custom"))
     for path in (
@@ -306,6 +309,7 @@ def validate(cfg):
         "llm.enabled",
         "llm.json_output",
         "tuning.compare_original",
+        "tuning.include_legacy_route",
         "device.write_enabled",
         "device.restore_on_fault",
         "output.save_csv",

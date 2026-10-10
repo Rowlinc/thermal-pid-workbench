@@ -43,6 +43,7 @@ class LLMTuner:
         self.debug_output = debug_output
         self.max_attempts = max(1, int(max_attempts))
         self.request_options = dict(request_options or {})
+        self.last_request_diagnostic: Dict[str, Any] = {}
         self.emit_console = emit_console
         self.stream_callback = stream_callback
         self.log_callback = log_callback
@@ -232,6 +233,7 @@ class LLMTuner:
         system_prompt: str,
         user_prompt: str,
     ) -> Optional[Dict[str, Any]]:
+        self.last_request_diagnostic = {}
         openai_msgs: List[Any] = [{"role": "system", "content": system_prompt}]
         anthropic_msgs: List[Any] = [{"role": "user", "content": user_prompt}]
         openai_msgs.append({"role": "user", "content": user_prompt})
@@ -246,16 +248,26 @@ class LLMTuner:
                     "debug", f"\n[LLM raw response preview]\n{content[:500]}...\n"
                 )
 
+            metadata = dict(getattr(self.llm_client, 'response_metadata', {}) or {})
+            self.last_request_diagnostic = metadata
+            if metadata.get('finish_reason') == 'length':
+                self.last_request_diagnostic.update(code='output_truncated', message=
+                    'LLM 输出达到 token 上限而被截断；请提高最大输出 token 数，或关闭思考模式后重试。')
+                self._emit_log('warn', self.last_request_diagnostic['message'])
+                return None
             parsed = parse_json_response(content)
             if parsed:
                 return parsed
 
+            self.last_request_diagnostic.update(code='invalid_json' if content else 'empty_answer',
+                message='LLM 未返回可解析的 JSON 参数。' if content else 'LLM 未返回正式答案；请检查思考模式和输出额度。')
             self._emit_log(
                 "warn",
                 "[WARN] LLM response could not be parsed as JSON; ignoring this round.",
             )
             return None
         except Exception as exc:
+            self.last_request_diagnostic = dict(code='request_failed', message='LLM API 请求失败；请检查服务、网络和连接诊断。')
             self._emit_log("error", f"[ERROR] LLM request failed after retries: {exc}")
             return None
 

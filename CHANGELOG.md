@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 — 2026-10-10
+
+- Run the original continuous tuning core on the common configured plant/controller, retain its checked initialization, applied proposals and actual final PID as a baseline route.
+- Refine every applicable Z-N/SIMC candidate independently and select across final routes; exact ties retain the legacy route. Keep `selected` as a display alias only.
+- Add accuracy/smooth/speed priorities and explicit final route provenance, selection reasons, baseline coverage and persistent history counts. Missing provenance in old records is not inferred.
+- Detect token exhaustion separately from invalid JSON and record finish reason/token usage without retaining reasoning text. Preserve best parameters on failed proposals.
+
 ## 0.4.0 — 2026-10-09
 
 - Add a Windows desktop application and loopback browser UI with editable configurations, CSV preview/column mapping, model import, LLM service/key settings, device adapters and original workflows.

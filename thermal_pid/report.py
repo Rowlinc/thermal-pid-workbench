@@ -32,6 +32,7 @@ def write_report(result, directory, save_csv=True):
                 "process": process,
                 "sample_time_s": result["config"]["controller"]["sample_time_s"],
                 "validation_scope": "configured offline simulation",
+                "selection": result.get('selection'),
             },
             ensure_ascii=False,
             indent=2,
@@ -54,6 +55,10 @@ def write_report(result, directory, save_csv=True):
                 {
                     "name": arm["name"],
                     "initial_method": arm["initial_method"],
+                    "route_role": arm.get('role'),
+                    "route_family": arm.get('family'),
+                    "final_selected_route": (result.get('selection') or {}).get('selected_route'),
+                    "used_legacy_route": (result.get('selection') or {}).get('used_legacy_route'),
                     **arm["final"]["metrics"],
                 }
                 for arm in result["arms"]
@@ -104,7 +109,7 @@ def write_report(result, directory, save_csv=True):
         m = arm["final"]["metrics"]
         p = arm["final"]["export_pid"]
         cells = [
-            arm["name"],
+            arm.get('label', arm["name"]),
             arm["initial_method"],
             f"{m['overshoot_pct']:.3f}",
             f"{m['iae_c_s']:.3f}",
@@ -134,7 +139,7 @@ def write_report(result, directory, save_csv=True):
         )
     )
     doc = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>PID Workbench</title><style>body{max-width:1100px;margin:35px auto;padding:0 20px;font:16px/1.6 system-ui;color:#233}table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}svg{width:100%;background:#f8faf9}code,pre{white-space:pre-wrap;overflow-wrap:anywhere}.legend{padding:10px}</style>' + f'<h1>{name} PID 对比报告</h1>'
-    doc += f'<p>任务：{result["config"]["task"]["initial_temperature_c"]:g} → {target:g} {unit}。模式：{html.escape(result["config"]["mode"])}。{status}。</p><p>original_zn：原辨识算法 + Z-N；corrected_zn：修正辨识 + Z-N；selected：比较适用于当前模型的候选。FOPDT 比较 Z-N / SIMC；积分模型使用 SIMC；手动模式从用户 PID 开始。启用 LLM 后，各组分别继续调优。所有候选均先经过 pid_safety 护栏。</p>'
+    doc += f'<p>任务：{result["config"]["task"]["initial_temperature_c"]:g} → {target:g} {unit}。模式：{html.escape(result["config"]["mode"])}。{status}。</p><p>原辨识公式参考不等于旧版完整调优路线。旧版、Z-N PID、Z-N PI、SIMC PI 分别调优，先检查护栏并统一复测，再跨路线选优。selected 仅展示最终赢家，不重复调用 LLM。积分或手动模型会标明不适用的路线。</p>'
     context = result.get("guardrail_context")
     if context:
         labels = {"absolute": "数值与绝对范围检查", "relative": "数值、绝对范围与相对增幅检查"}
@@ -142,6 +147,9 @@ def write_report(result, directory, save_csv=True):
             html.escape(label + '：' + labels[context[key]])
             for label, key in (("初始公式候选", "initial_candidates"), ("LLM每轮", "llm_rounds"), ("最终参数", "final_delivery"))
         ) + '。参数检查通过后仍须完整任务仿真达标；test 模式不连接设备。</p>'
+    selection = result.get('selection')
+    if selection:
+        doc += '<p><strong>最终路线：' + html.escape(selection['selected_label']) + '</strong>。' + html.escape(selection['reason']) + ' 评价标准：' + html.escape(selection['priority']) + '。旧版路线状态：' + html.escape(selection['legacy_status']) + '。</p>'
     doc += (
         "<p>生成时间："
         + html.escape(result["created_at_utc"])

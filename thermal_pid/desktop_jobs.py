@@ -90,7 +90,8 @@ class Job:
             self.store._write(self.directory/'record.json',dict(id=self.id,workflow=self.workflow,
                 status=self.status,started=self.started,name=project['name'],process=project['process'],
                 target=project['task']['target_temperature_c'],
-                recommendation_status=(self.result or {}).get('recommendation_status')))
+                recommendation_status=(self.result or {}).get('recommendation_status'),
+                selection=(self.result or {}).get('selection')))
 
     def view(self):
         with self.lock:
@@ -98,7 +99,7 @@ class Job:
             project = getattr(self,'project',None) or self.store.project()
             if self.workflow == 'project':
                 if result:
-                    metrics = [dict(name=a['name'], initial_method=a['initial_method'],
+                    metrics = [dict(name=a['name'], label=a.get('label',a['name']), initial_method=a['initial_method'],
                                     pid=a['final']['pid'], **a['final']['metrics']) for a in result['arms']]
                     series = {a['name']:a['final']['samples'][::max(1,len(a['final']['samples'])//700)]
                               for a in result['arms']}
@@ -118,6 +119,7 @@ class Job:
                         events=self.events[-120:], metrics=metrics, series=series,
                         result_available=self.output is not None,
                         selected_method=result.get('selected_method') if result else None,
+                        selection=result.get('selection') if result else None,
                         recommendation_status=result.get('recommendation_status') if result else None,
                         final_pid=(result.get('recommended',{}).get('pid') if result.get('recommended')
                                    else result.get('final_pid')) if result else None,
@@ -318,7 +320,8 @@ class JobManager:
                 cfg=json.loads((p.parent/'project.json').read_text(encoding='utf-8'))
                 row.update(name=cfg['name'],process=cfg.get('process'),
                            target=cfg['task'].get('target_value',cfg['task'].get('target_temperature_c')),
-                           recommendation_status=(value.get('result') or {}).get('recommendation_status'))
+                           recommendation_status=(value.get('result') or {}).get('recommendation_status'),
+                           selection=(value.get('result') or {}).get('selection'))
                 rows.append(row)
             except (OSError,ValueError,KeyError):continue
         indexed={row['id']:row for row in rows}
@@ -332,7 +335,8 @@ class JobManager:
                 indexed[job.id]=dict(id=job.id,workflow=job.workflow,status=job.status,
                     started=job.started,name=cfg['name'],process=cfg['process'],
                     target=cfg['task']['target_temperature_c'],
-                    recommendation_status=(job.result or {}).get('recommendation_status'))
+                    recommendation_status=(job.result or {}).get('recommendation_status'),
+                    selection=(job.result or {}).get('selection'))
         return sorted(indexed.values(),key=lambda r:r['id'],reverse=True)
 
     def control(self, identifier, action):

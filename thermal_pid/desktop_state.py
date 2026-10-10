@@ -20,6 +20,7 @@ ENUMS = {
     'controller.form': ['parallel', 'ideal'], 'controller.parameter_time_unit': ['s', 'min'],
     'controller.derivative_on': ['measurement', 'error'], 'controller.initialization': ['zero', 'tracking'],
     'controller.guardrail_policy': ['auto', 'relative'],
+    'tuning.selection_priority': ['accuracy', 'smooth', 'speed'],
     'llm.provider': ['openai', 'anthropic', 'auto'],
     'llm.deepseek_thinking': ['disabled', 'enabled', 'provider_default'],
     'device.adapter': ['disabled', 'simulated', 'tcp', 'serial', 'custom'],
@@ -137,6 +138,14 @@ def field_metadata():
                     scope=parts[2] if len(parts)>2 else ''
                     label={'default':'原流程通用','python_sim':'原Python','simulink':'原Simulink'}.get(scope,scope)+' · '+label
             description = COMMENTS.get(path, '原项目原有配置；与其配置模板和 Simulink 指南一致。')
+            if path == 'tuning.selection_priority':
+                label = '最终选优标准'
+                description = '先满足所有硬约束。accuracy：IAE→输出变化→调节时间；smooth：超调→输出变化→IAE；speed：调节时间→IAE→输出变化。所有路线使用同一标准。'
+            if path == 'tuning.include_legacy_route':
+                label = '纳入旧版完整调优路线'
+                description = '默认开启，作为最终选优的保底候选；LLM关闭时仅比较旧版护栏后的初始化。积分模型、反向对象或无可用辨识数据时可能无法运行，报告会说明。'
+            if path == 'llm.max_output_tokens':
+                description = '单次请求的输出 token 上限。思考模式的推理和正式答案共用额度；额度不足会截断而没有 PID。开启思考模式时可设 32768，并关注实际用量和费用。'
             if not path.startswith('legacy.') and 'heater' not in path and 'ambient' not in path and 'cooling' not in path and 'heat_transfer' not in path:
                 description = description.replace('°C/输出单位', '被控量单位/输出单位').replace('°C', '被控量单位').replace('温度', '被控量').replace('温差', '偏差')
             if path.startswith('process.'):

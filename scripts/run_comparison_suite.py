@@ -90,6 +90,9 @@ def main(argv=None):
                 m = arm['final']['metrics']
                 history = arm['history']
                 rows.append(dict(scenario=cfg['name'], arm=arm['name'], initial_method=arm['initial_method'],
+                                 final_selected_route=result.get('selection',{}).get('selected_route'),
+                                 used_legacy_route=result.get('selection',{}).get('used_legacy_route'),
+                                 strictly_improved_vs_legacy=result.get('selection',{}).get('strictly_improved_vs_legacy'),
                                  eligible=m['eligible'], failures=','.join(m['failures']),
                                  **{k:m[k] for k in ('max_temperature_c','overshoot_pct','settling_time_s','iae_c_s','tail_mae_c','output_tv','saturation_fraction')},
                                  **arm['final']['pid'], initial_iae_c_s=arm['initial']['metrics']['iae_c_s'],
